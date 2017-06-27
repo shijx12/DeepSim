@@ -155,7 +155,7 @@ class SolverWrapper(object):
                    'weights from {:s}').format(self.pretrained_model)
                 self.net.load(self.pretrained_model, sess, True)
             except:
-                raise 'Check your pretrained model {:s}'.format(self.pretrained_model)
+                raise Exception('Check your pretrained model {:s}'.format(self.pretrained_model))
 
         # resuming a trainer
         if restore:
@@ -168,7 +168,7 @@ class SolverWrapper(object):
                 sess.run(global_step.assign(restore_iter))
                 print 'done'
             except:
-                raise 'Check your pretrained {:s}'.format(ckpt.model_checkpoint_path)
+                raise Exception('Check your pretrained {:s}'.format(ckpt.model_checkpoint_path))
 
         last_snapshot_iter = -1
         timer = Timer()
@@ -322,7 +322,7 @@ def get_data_layer(roidb, num_classes):
         if cfg.IS_MULTISCALE:
             # obsolete
             # layer = GtDataLayer(roidb)
-            raise "Calling caffe modules..."
+            raise Exception("Calling caffe modules...")
         else:
             layer = RoIDataLayer(roidb, num_classes)
     else:

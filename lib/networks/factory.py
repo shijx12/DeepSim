@@ -18,6 +18,7 @@ from .Resnet101_test import Resnet101_test
 from .Resnet101_train import Resnet101_train
 from .PVAnet_train import PVAnet_train
 from .PVAnet_test import PVAnet_test
+from .forked_VGGnet import forked_VGGnet
 
 
 def get_network(name):
@@ -52,6 +53,13 @@ def get_network(name):
            return PVAnet_train()
         else:
             raise KeyError('Unknown dataset: {}'.format(name))
+    elif name.startswith('forked_VGGnet'):
+        if name.endswith('test'):
+            return forked_VGGnet(False)
+        elif name.endswith('train'):
+            return forked_VGGnet(True)
+        else:
+            raise KeyError('Invalid forked network name. You should choose forked_VGGnet_test or forked_VGGnet_train.')
     else:
         raise KeyError('Unknown dataset: {}'.format(name))
 

@@ -19,7 +19,7 @@ class VGGnet_train(Network):
     def setup(self):
 
         # n_classes = 21
-        n_classes = cfg.NCLASSES
+        self.n_classes = cfg.NCLASSES
         # anchor_scales = [8, 16, 32]
         anchor_scales = cfg.ANCHOR_SCALES
         _feat_stride = [16, ]
@@ -77,7 +77,7 @@ class VGGnet_train(Network):
         # matching boxes and groundtruth,
         # and randomly sample some rois and labels for RCNN
         (self.feed('rpn_rois','gt_boxes', 'gt_ishard', 'dontcare_areas')
-             .proposal_target_layer(n_classes,name = 'roi-data'))
+             .proposal_target_layer(self.n_classes,name = 'roi-data'))
 
         #========= RCNN ============        
         (self.feed('conv5_3', 'rois')
@@ -86,8 +86,8 @@ class VGGnet_train(Network):
              .dropout(0.5, name='drop6')
              .fc(4096, name='fc7')
              .dropout(0.5, name='drop7')
-             .fc(n_classes, relu=False, name='cls_score')
+             .fc(self.n_classes, relu=False, name='cls_score')
              .softmax(name='cls_prob'))
 
         (self.feed('drop7')
-             .fc(n_classes*4, relu=False, name='bbox_pred'))
+             .fc(self.n_classes*4, relu=False, name='bbox_pred'))

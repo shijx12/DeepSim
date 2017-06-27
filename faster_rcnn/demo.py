@@ -121,7 +121,8 @@ if __name__ == '__main__':
     # load model
     print ('Loading network {:s}... '.format(args.demo_net)),
     saver = tf.train.Saver()
-    saver.restore(sess, args.model)
+    # saver.restore(sess, args.model)
+    saver.restore(sess, tf.train.latest_checkpoint(args.model))
     print (' done.')
 
     # Warmup on a dummy image

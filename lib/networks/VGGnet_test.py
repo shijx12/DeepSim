@@ -16,6 +16,7 @@ class VGGnet_test(Network):
     def setup(self):
         # n_classes = 21
         n_classes = cfg.NCLASSES
+        self.n_classes = n_classes
         # anchor_scales = [8, 16, 32]
         anchor_scales = cfg.ANCHOR_SCALES
         _feat_stride = [16, ]
@@ -27,25 +28,26 @@ class VGGnet_test(Network):
          .conv(3, 3, 128, 1, 1, name='conv2_1', trainable=False)
          .conv(3, 3, 128, 1, 1, name='conv2_2', trainable=False)
          .max_pool(2, 2, 2, 2, padding='VALID', name='pool2')
-         .conv(3, 3, 256, 1, 1, name='conv3_1')
-         .conv(3, 3, 256, 1, 1, name='conv3_2')
-         .conv(3, 3, 256, 1, 1, name='conv3_3')
+         .conv(3, 3, 256, 1, 1, name='conv3_1', trainable=False)
+         .conv(3, 3, 256, 1, 1, name='conv3_2', trainable=False)
+         .conv(3, 3, 256, 1, 1, name='conv3_3', trainable=False)
          .max_pool(2, 2, 2, 2, padding='VALID', name='pool3')
-         .conv(3, 3, 512, 1, 1, name='conv4_1')
-         .conv(3, 3, 512, 1, 1, name='conv4_2')
-         .conv(3, 3, 512, 1, 1, name='conv4_3')
+         .conv(3, 3, 512, 1, 1, name='conv4_1', trainable=False)
+         .conv(3, 3, 512, 1, 1, name='conv4_2', trainable=False)
+         .conv(3, 3, 512, 1, 1, name='conv4_3', trainable=False)
          .max_pool(2, 2, 2, 2, padding='VALID', name='pool4')
-         .conv(3, 3, 512, 1, 1, name='conv5_1')
-         .conv(3, 3, 512, 1, 1, name='conv5_2')
-         .conv(3, 3, 512, 1, 1, name='conv5_3'))
+         .conv(3, 3, 512, 1, 1, name='conv5_1', trainable=False)
+         .conv(3, 3, 512, 1, 1, name='conv5_2', trainable=False)
+         .conv(3, 3, 512, 1, 1, name='conv5_3', trainable=False))
 
         (self.feed('conv5_3')
-         .conv(3, 3, 512, 1, 1, name='rpn_conv/3x3')
-         .conv(1, 1, len(anchor_scales) * 3 * 2, 1, 1, padding='VALID', relu=False, name='rpn_cls_score'))
+         .conv(3, 3, 512, 1, 1, name='rpn_conv/3x3', trainable=False)
+         .conv(1, 1, len(anchor_scales) * 3 * 2, 1, 1, padding='VALID', relu=False, name='rpn_cls_score', trainable=False))
 
         (self.feed('rpn_conv/3x3')
-         .conv(1, 1, len(anchor_scales) * 3 * 4, 1, 1, padding='VALID', relu=False, name='rpn_bbox_pred'))
+         .conv(1, 1, len(anchor_scales) * 3 * 4, 1, 1, padding='VALID', relu=False, name='rpn_bbox_pred', trainable=False))
 
+        # H is current height, W is current width. A is anchor number = 9.
         #  shape is (1, H, W, Ax2) -> (1, H, WxA, 2)
         (self.feed('rpn_cls_score')
          .spatial_reshape_layer(2, name='rpn_cls_score_reshape')
@@ -60,11 +62,11 @@ class VGGnet_test(Network):
 
         (self.feed('conv5_3', 'rois')
          .roi_pool(7, 7, 1.0 / 16, name='pool_5')
-         .fc(4096, name='fc6')
-         .fc(4096, name='fc7')
-         .fc(n_classes, relu=False, name='cls_score')
+         .fc(4096, name='fc6', trainable=False)
+         .fc(4096, name='fc7', trainable=False)
+         .fc(n_classes, relu=False, name='cls_score', trainable=False)
          .softmax(name='cls_prob'))
 
         (self.feed('fc7')
-         .fc(n_classes * 4, relu=False, name='bbox_pred'))
+         .fc(n_classes * 4, relu=False, name='bbox_pred', trainable=False))
 
