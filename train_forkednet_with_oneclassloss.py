@@ -3,14 +3,15 @@ import pprint
 import numpy as np
 import sys
 import os.path
+import cv2
 import time
 import math
 import tensorflow as tf
-from util import DataFetcher
 from tqdm import tqdm
 
 from lib.fast_rcnn.train import get_training_roidb
 from lib.fast_rcnn.config import cfg, cfg_from_file, cfg_from_list, get_output_dir, get_log_dir
+from lib.datasets.factory import get_imdb
 from lib.networks.forked_VGGnet import forked_VGGnet
 
 def parse_args():
@@ -26,9 +27,11 @@ def parse_args():
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 of optimizer')
     parser.add_argument('--save_freq', type=int, default=10000, help='save frequency')
     parser.add_argument('--show_freq', type=int, default=100, help='show frequency')
-    parser.add_argument('--summ_freq', type=int, default=100, help='summary frequenc')
+    parser.add_argument('--summ_freq', type=int, default=200, help='summary frequenc')
     parser.add_argument('--mode', default='train', choices=['train', 'test'])
     parser.add_argument('--debug', action='store_true')
+    
+    parser.add_argument('--which_class', type=int, default=0)
 
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
@@ -40,6 +43,62 @@ def parse_args():
     args = parser.parse_args()
     return args
 args = parse_args()
+
+class DataFetcher:
+    def __init__(self, which_class=-1):
+        imdb = get_imdb(args.imdb_name)
+        # Ignore the background class!!! So ['gt_classes'] must minus 1.
+        # We get the classes as the placeholder filler of forked_VGGnet.classes
+        self.classes = [ np.zeros(imdb.num_classes - 1) for i in range(imdb.num_images) ]
+        for i, anno in enumerate(imdb.gt_roidb()):
+            np.put(self.classes[i], map(lambda x: x-1, anno['gt_classes']), 1)
+        self.images = [ imdb.image_path_at(i) for i in range(imdb.num_images) ]
+
+        if which_class >= 0:
+            pos_num = 0
+            for cls in self.classes:
+                if cls[which_class] == 1:
+                    pos_num += 1
+            print('postive number of class%d is %d' % ( which_class, pos_num ))
+            neg_num = 0
+            sub_classes = []
+            sub_images = []
+            for i, c in zip(self.images, self.classes):
+                if c[which_class] == 1:
+                    sub_classes.append(c)
+                    sub_images.append(i)
+                elif neg_num < pos_num:
+                    sub_classes.append(c)
+                    sub_images.append(i)
+                    neg_num += 1
+            self.classes = sub_classes
+            self.images = sub_images
+            print('negtive number of class%d is %d' % ( which_class, neg_num ))
+        assert len(self.classes) == len(self.images)
+
+        self._perm = np.random.permutation(np.arange(len(self.images)))
+        self._cur = 0
+
+    def nextbatch(self):
+        # if all images have been trained, permuate again.
+        if self._cur >= len(self.images):
+            self._cur = 0
+            self._perm = np.random.permutation(np.arange(len(self.images)))
+        i = self._perm[self._cur]
+        self._cur += 1
+        blobs = {}
+        # substract PIXEL_MEANS from original image.
+        im = cv2.imread(self.images[i]).astype(np.float32, copy=False)
+        im -= cfg.PIXEL_MEANS
+        blobs['data'] = [im]
+        blobs['path'] = [self.images[i]]
+        blobs['classes'] = [self.classes[i]]
+        blobs['keep_prob'] = 0.5 # not used at all
+        # im_info: a list of [image_height, image_width, scale_ratios]
+        # im_scale=1, that is, we don't scale the original image size.
+        blobs['im_info'] = np.asarray([[im.shape[1], im.shape[2], 1]], dtype=np.float32)
+        return blobs
+
 
 def train():
     print(args)
@@ -55,7 +114,7 @@ def train():
 
     conv1_5_trainable = [ c=='1' for c in args.conv1_5_trainable ]
     net = forked_VGGnet(True, conv1_5_trainable) # Net
-    data = DataFetcher(args.imdb_name)    # Data
+    data = DataFetcher(args.which_class)    # Data
     sess = tf.Session() # Session
     print('trainable variables:')
     for var in net.trainable_variables:
@@ -63,10 +122,10 @@ def train():
     # Optimizer and train op
     optimizer = tf.train.AdamOptimizer(args.lr, beta1=args.beta1)
 
-    #one_cls_loss = tf.losses.sigmoid_cross_entropy(net.classes[0][0], net.layers['forked_cls_score'][0][0])
-    #grads = optimizer.compute_gradients(one_cls_loss, net.trainable_variables)  # TODO: exp
+    one_cls_loss = tf.losses.sigmoid_cross_entropy(net.classes[0][args.which_class], net.layers['forked_cls_scores'][0][args.which_class])
+    grads = optimizer.compute_gradients(one_cls_loss, net.trainable_variables)  # TODO: exp
 
-    grads = optimizer.compute_gradients(net.cls_loss, net.trainable_variables)
+    # grads = optimizer.compute_gradients(net.cls_loss, net.trainable_variables)
     train_op = optimizer.apply_gradients(grads)
     # global step
     global_step = tf.contrib.framework.get_or_create_global_step()
@@ -76,9 +135,8 @@ def train():
     sess.run(tf.global_variables_initializer())
     # restore the original detection VGG16 weights
     if args.det_branch_path:
-        #saver = tf.train.Saver(net.det_variables)
-        #saver.restore(sess, tf.train.latest_checkpoint(args.det_branch_path))
-        net.load(args.det_branch_path, sess, True)
+        saver = tf.train.Saver(net.det_variables)
+        saver.restore(sess, tf.train.latest_checkpoint(args.det_branch_path))
 
     # saver of the entire forked_VGGnet
     saver = tf.train.Saver(max_to_keep=None)
@@ -88,10 +146,7 @@ def train():
         print("forked_VGGnet Model restored..")
 
     # summary information and handler
-    tf.summary.scalar('cls_loss', net.cls_loss)
-    for grad, var in grads:
-        tf.summary.histogram(var.name, var)
-        tf.summary.histogram(var.name+'/grad', grad)
+    tf.summary.scalar('class%d_loss' % args.which_class, one_cls_loss)
     summary_op = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(args.logdir, sess.graph)
 
@@ -118,7 +173,7 @@ def train():
                 'train_op': train_op,
             }
             if step % args.show_freq == 0:
-                run_dict['cls_loss'] = net.cls_loss
+                run_dict['cls_loss'] = one_cls_loss
             if step % args.summ_freq == 0:
                 run_dict['summary'] = summary_op
             if args.debug:
@@ -153,32 +208,7 @@ def test():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     
     net = forked_VGGnet(train=False)
-    data = DataFetcher(args.imdb_name)
-
-
-    def check_sparsity():
-        (net.feed('conv5_3', 'hack_roi')
-                .roi_pool(7, 7, 1.0/16, name='pool_5')
-                .fc(4096, name='fc6', trainable=False)
-                .fc(4096, name='fc7', trainable=False)) # NOTE: must comment VGGnet_test's corresponding part
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
-        saver = tf.train.Saver()
-        ckpt = tf.train.get_checkpoint_state(args.logdir)
-        saver.restore(sess, ckpt.model_checkpoint_path)
-        names = ['conv1_2', 'conv2_2', 'conv3_3', 'conv4_3', 'conv5_3', 'fc6', 'fc7', 'forked_fc6', 'forked_fc7']
-        layers = { name: tf.nn.zero_fraction(net.get_output(name)) for name in names }
-        def next():
-            blob = data.nextbatch()
-            feed_dict = {net.data:blob['data'], net.im_info:blob['im_info'], net.keep_prob:0.5, net.classes:blob['classes']}
-            results = sess.run(layers, feed_dict=feed_dict)
-            for name, result in results.items():
-                print name, result 
-        from IPython import embed; embed()
-        sys.exit(0)
-    # check_sparsity()
-
-
+    data = DataFetcher()
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
 
@@ -187,7 +217,7 @@ def test():
     if ckpt and ckpt.model_checkpoint_path:
         saver.restore(sess, ckpt.model_checkpoint_path)
         print("forked_VGGnet Model restored..")
-    #from IPython import embed; embed() 
+    #from IPython import embed; embed()
     
     def cal_prec_reca_for_each_class():
         targets = []
@@ -216,11 +246,11 @@ def test():
         output_pos_num = np.sum(binary_output, axis=0)
         precision = true_pos / output_pos_num
         recall = true_pos / target_pos_num
-        from IPython import embed; embed()
         print('target_pos_num\ttrue_pos\tprecision\trecall')
         for i in range(20):
-            print('%.0f\t%.0f\t%.2f\t%.2f' % (target_pos_num[i], true_pos[i], precision[i], recall[i]))
-    #cal_prec_reca_for_each_class()
+            print('%.0f\t\t%.0f\t%.2f\t%.2f' % (target_pos_num[i], true_pos[i], precision[i], recall[i]))
+        from IPython import embed; embed()
+    cal_prec_reca_for_each_class()
 
 
 if __name__ == '__main__':

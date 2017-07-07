@@ -74,7 +74,7 @@ class Network(object):
             if isinstance(layer, basestring):
                 try:
                     layer = self.layers[layer]
-                    print layer
+                    # print layer
                 except KeyError:
                     print self.layers.keys()
                     raise KeyError('Unknown layer name fed: %s'%layer)
@@ -154,8 +154,23 @@ class Network(object):
                     return tf.nn.relu(conv)
                 return conv
 
+    def batch_norm(self, input, scope='batchnorm'):
+        # http://stackoverflow.com/a/34634291/2267819
+        with tf.variable_scope(scope):
+            input = tf.identity(input)
+            channels = input.get_shape()[3]
+            offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
+            scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
+            mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
+            variance_epsilon = 1e-5
+            normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
+            return normalized
+
+    def leaky_relu(self, input, alpha=0.3, name='leaky_relu'):
+        return tf.maximum(alpha*input, input, name)
+
     @layer
-    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, relu=True, padding=DEFAULT_PADDING,
+    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, activation='leaky_relu', bn=False, padding=DEFAULT_PADDING,
              trainable=True):
         """ up-conv"""
         self.validate_padding(padding)
@@ -163,8 +178,6 @@ class Network(object):
         c_in = input.get_shape()[3].value
         in_shape = tf.shape(input)
         if shape is None:
-            # h = ((in_shape[1] - 1) * stride) + 1
-            # w = ((in_shape[2] - 1) * stride) + 1
             h = ((in_shape[1] ) * stride)
             w = ((in_shape[2] ) * stride)
             new_shape = [in_shape[0], h, w, c_o]
@@ -182,19 +195,20 @@ class Network(object):
             deconv = tf.nn.conv2d_transpose(input, filters, output_shape,
                                             strides=[1, stride, stride, 1], padding=DEFAULT_PADDING, name=scope.name)
             # coz de-conv losses shape info, use reshape to re-gain shape
-            deconv = tf.reshape(deconv, new_shape)
+            h = tf.reshape(deconv, new_shape)
 
             if biased:
                 init_biases = tf.constant_initializer(0.0)
                 biases = self.make_var('biases', [c_o], init_biases, trainable)
-                if relu:
-                    bias = tf.nn.bias_add(deconv, biases)
-                    return tf.nn.relu(bias)
-                return tf.nn.bias_add(deconv, biases)
-            else:
-                if relu:
-                    return tf.nn.relu(deconv)
-                return deconv
+                h = tf.nn.bias_add(h, biases)
+            if bn:
+                h = self.batch_norm(h)
+            if activation != None:
+                if activation=='relu':
+                    h = tf.nn.relu(h)
+                elif activation=='leaky_relu':
+                    h = self.leaky_relu(h)
+            return h
 
     @layer
     def relu(self, input, name):
@@ -304,6 +318,19 @@ class Network(object):
 
             return rois, labels, bbox_targets, bbox_inside_weights, bbox_outside_weights
 
+    @layer
+    def h_reshape(self, input, shape, name):
+        input_shape = input.get_shape().as_list()
+        if len(input_shape) != 2:
+            raise Exception('Input\'s shape of h_reshape must be [batch, dim]')
+        if input_shape[1] != shape[0]*shape[1]*shape[2]:
+            raise Exception('Not consistent shape')
+        return tf.reshape(input, [-1, shape[0], shape[1], shape[2]], name=name)
+
+    @layer
+    def reshape_toh(self, input, name):
+        shape = input.get_shape().as_list()
+        return tf.reshape(input, [-1, shape[1] * shape[2] * shape[3]], name=name)
 
     @layer
     def reshape_layer(self, input, d, name):
@@ -361,7 +388,7 @@ class Network(object):
         return tf.concat(axis=axis, values=inputs, name=name)
 
     @layer
-    def fc(self, input, num_out, name, relu=True, trainable=True):
+    def fc(self, input, num_out, name, activation='relu', biased=True, trainable=True):
         with tf.variable_scope(name) as scope:
             # only use the first input
             if isinstance(input, tuple):
@@ -385,11 +412,18 @@ class Network(object):
 
             weights = self.make_var('weights', [dim, num_out], init_weights, trainable, \
                                     regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
-            biases = self.make_var('biases', [num_out], init_biases, trainable)
+            if biased:
+                biases = self.make_var('biases', [num_out], init_biases, trainable)
+            else:
+                biases = tf.zeros([num_out], name='constant_biases')
 
-            op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
-            fc = op(feed_in, weights, biases, name=scope.name)
-            return fc
+            h = tf.nn.xw_plus_b(feed_in, weights, biases, name=scope.name)
+            if activation != None:
+                if activation=='relu':
+                    h = tf.nn.relu(h)
+                elif activation=='leaky_relu':
+                    h = self.leaky_relu(h)
+            return h
 
     @layer
     def softmax(self, input, name):
