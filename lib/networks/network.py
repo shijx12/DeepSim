@@ -129,7 +129,7 @@ class Network(object):
             """
 
     @layer
-    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,relu=True, padding=DEFAULT_PADDING, trainable=True):
+    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,activation='relu',bn=False, padding=DEFAULT_PADDING, trainable=True):
         """ contribution by miraclebiu, and biased option"""
         self.validate_padding(padding)
         c_i = input.get_shape()[-1]
@@ -143,29 +143,39 @@ class Network(object):
                                    regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
             if biased:
                 biases = self.make_var('biases', [c_o], init_biases, trainable)
-                conv = convolve(input, kernel)
-                if relu:
-                    bias = tf.nn.bias_add(conv, biases)
-                    return tf.nn.relu(bias)
-                return tf.nn.bias_add(conv, biases)
             else:
-                conv = convolve(input, kernel)
-                if relu:
-                    return tf.nn.relu(conv)
-                return conv
+                biases = tf.zeros([c_o], name='constant_biases')
+            h = convolve(input, kernel)
+            h = tf.nn.bias_add(h, biases)
+            if bn:
+                h = self.batch_norm(h)
+            if activation != None:
+                if activation == 'relu':
+                    h = tf.nn.relu(h)
+                elif activation == 'leaky_relu':
+                    h = self.leaky_relu(h)
+            return h
 
+    @layer
     def batch_norm(self, input, scope='batchnorm'):
         # http://stackoverflow.com/a/34634291/2267819
         with tf.variable_scope(scope):
             input = tf.identity(input)
-            channels = input.get_shape()[3]
-            offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
-            scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
-            mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
+            if len(input.get_shape().as_list()) == 4:
+                channels = input.get_shape()[3]
+                offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
+                scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
+                mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
+            elif len(input.get_shape().as_list()) == 2:
+                channels = input.get_shape()[1]
+                offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
+                scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
+                mean, variance = tf.nn.moments(input, axes=[0], keep_dims=False)
             variance_epsilon = 1e-5
             normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
             return normalized
 
+    @layer
     def leaky_relu(self, input, alpha=0.3, name='leaky_relu'):
         return tf.maximum(alpha*input, input, name)
 
@@ -201,13 +211,13 @@ class Network(object):
                 init_biases = tf.constant_initializer(0.0)
                 biases = self.make_var('biases', [c_o], init_biases, trainable)
                 h = tf.nn.bias_add(h, biases)
-            if bn:
-                h = self.batch_norm(h)
             if activation != None:
                 if activation=='relu':
                     h = tf.nn.relu(h)
                 elif activation=='leaky_relu':
                     h = self.leaky_relu(h)
+            if bn:
+                h = self.batch_norm(h)
             return h
 
     @layer
@@ -388,7 +398,7 @@ class Network(object):
         return tf.concat(axis=axis, values=inputs, name=name)
 
     @layer
-    def fc(self, input, num_out, name, activation='relu', biased=True, trainable=True):
+    def fc(self, input, num_out, name, activation='relu', biased=True, bn=False, trainable=True):
         with tf.variable_scope(name) as scope:
             # only use the first input
             if isinstance(input, tuple):
@@ -423,6 +433,8 @@ class Network(object):
                     h = tf.nn.relu(h)
                 elif activation=='leaky_relu':
                     h = self.leaky_relu(h)
+            if bn:
+                h = self.batch_norm(h)
             return h
 
     @layer

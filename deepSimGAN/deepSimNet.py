@@ -71,7 +71,7 @@ class deepSimNet(Network):
             print ' -----------------------------------'
 
 
-    def Encoder(self, image, inv_layer='forked_fc6', cmp_layer='forked_pool5', score_layer='forked_cls_scores'): # Untrainable at all. Must be restored !!!!
+    def Encoder(self, image, inv_layer='fc6', cmp_layer='pool5', score_layer='cls_score'): # Untrainable at all. Must be restored !!
         image.set_shape([None, self.height, self.width, 3])
         image = util.subtract_mean(util.invprep(image)) # change range from [-1,1] to [0, 256] and then subtract mean pixel
         self.layers['image'] = image
@@ -97,10 +97,10 @@ class deepSimNet(Network):
         #(self.feed('conv5_3', 'hack_roi')
         #     .roi_pool(7, 7, 1.0 / 16, name='forked_pool5') # 7x7x512. NOTE: roi_pool limits that batch size must be 1. 
         (self.feed('conv5_3')
-             .max_pool(2, 2, 2, 2, padding='VALID', name='forked_pool5') # 7x7x512. Totally equivalent to the commented hack_roi.
-             .fc(4096, name='forked_fc6', trainable=False)
-             .fc(4096, name='forked_fc7', trainable=False)
-             .fc(self.n_classes, activation=None, name='forked_cls_scores', trainable=False))
+             .max_pool(2, 2, 2, 2, padding='VALID', name='pool5') # 7x7x512. Totally equivalent to the commented hack_roi.
+             .fc(4096, name='fc6', trainable=False)
+             .fc(4096, name='fc7', trainable=False)
+             .fc(self.n_classes, activation=None, name='cls_score', trainable=False))
         # return inverted_h, compared_h, cls_scores
         return self.get_output(inv_layer), self.get_output(cmp_layer), self.get_output(score_layer)
 

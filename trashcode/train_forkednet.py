@@ -9,9 +9,6 @@ import tensorflow as tf
 from util import DataFetcher
 from tqdm import tqdm
 
-from lib.fast_rcnn.train import get_training_roidb
-from lib.fast_rcnn.config import cfg, cfg_from_file, cfg_from_list, get_output_dir, get_log_dir
-from lib.networks.forked_VGGnet import forked_VGGnet
 
 def parse_args():
     parser = argparse.ArgumentParser()

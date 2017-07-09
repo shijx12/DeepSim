@@ -1,7 +1,10 @@
+import numpy as np
+
 RESIZED_SIZE = 256
 HEIGHT = 227
 WIDTH = 227
 N_CLASSES = 20
+PIXEL_MEANS = np.array([[[102.9801, 115.9465, 122.7717]]])
 
 # loss weight
 RECON_WEIGHT = 1
