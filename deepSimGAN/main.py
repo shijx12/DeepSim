@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--logdir', type=str, required=True, help='log dir to store checkpoints and summary')
     parser.add_argument('--encoder', type=str, required=True, help='where is the encoder trained model')
     parser.add_argument('--seed', type=int, default=123456789)
-    parser.add_argument('--optimizer', default='Adam', choices=['Adam', 'RMS'])
+    parser.add_argument('--optimizer', default='RMS', choices=['Adam', 'RMS'])
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--beta1', type=float, default=0.9, help='beta1 of optimizer')
     parser.add_argument('--save_freq', type=int, default=10000, help='save frequency')
@@ -98,27 +98,23 @@ def train():
     threads = tf.train.start_queue_runners(sess, coord)
     tic = time.time()
 
-    g_flag, d_flag = True, True
     try:
         for step in range(1, args.iters+1):
             blobs = data.nextbatch()
             feed_dict = {
                     net.original_image: blobs['data']
                     }
-            #for i in range(args.critic_iters): # for WGAN train
-            #    sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
-            #    blobs = data.nextbatch()
-            #    feed_dict = { net.original_image: blobs['data'] }
+            for i in range(args.critic_iters): # for WGAN train
+                sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
+                blobs = data.nextbatch()
+                feed_dict = { net.original_image: blobs['data'] }
 
             run_dict = {
                     'global_step': global_step,
                     'incr_global_step': incr_global_step,
                     }
-            if g_flag:
-                run_dict['gen_train_op'] = gen_train_op
-            if d_flag:
-                run_dict['dis_train_op'] = dis_train_op
-            if True or step % args.show_freq == 0:
+            run_dict['gen_train_op'] = gen_train_op
+            if step % args.show_freq == 0:
                 run_dict['gen_loss'] = net.gen_loss
                 run_dict['dis_loss'] = net.dis_loss
                 run_dict['recon_loss'] = net.recon_loss
@@ -128,17 +124,6 @@ def train():
             
             results = sess.run(run_dict, feed_dict=feed_dict)
             
-            ratio = results['dis_loss'] / results['gen_loss']
-            if ratio < 1e-1 and d_flag:
-                d_flag = False
-                g_flag = True
-            if ratio > 5e-1 and not d_flag:
-                d_flag = True
-                g_flag = True
-            if ratio > 1e1 and g_flag:
-                d_flag = True
-                g_flag = False
-
             # save, summary and display
             if step % args.show_freq == 0:
                 rate = step / (time.time() - tic)
