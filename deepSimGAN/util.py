@@ -64,9 +64,9 @@ def invprep(image):
     # change range from [-1, 1] to [0, 256)
     # image is a float32 Tensor.
     # return a uint8 Tensor.
-    image = (image + 1) / 2.0 * 255
-    image = tf.cast(image, dtype=tf.uint8)
+    image = (image + 1) / 2.0 * 255.9
     return image
 
 def bgr2rgb(image):
+    image = tf.cast(image, dtype=tf.uint8)
     return image[:,:,:,::-1]

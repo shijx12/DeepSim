@@ -12,13 +12,14 @@ import time
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', default='0', type=str)
-    parser.add_argument('--iters', default=50000, type=int)
+    parser.add_argument('--iters', default=100000, type=int)
     parser.add_argument('--imdb_name', default='voc_2012_train', type=str, help='dataset to train on')
     parser.add_argument('--logdir', type=str, required=True, help='log dir to store checkpoints and summary')
-    parser.add_argument('--enc_modelpath', type=str, required=True, help='where is the encoder trained model')
+    parser.add_argument('--encoder', type=str, required=True, help='where is the encoder trained model')
     parser.add_argument('--seed', type=int, default=123456789)
+    parser.add_argument('--optimizer', default='Adam', choices=['Adam', 'RMS'])
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
-    parser.add_argument('--beta1', type=float, default=0.5, help='beta1 of optimizer')
+    parser.add_argument('--beta1', type=float, default=0.9, help='beta1 of optimizer')
     parser.add_argument('--save_freq', type=int, default=10000, help='save frequency')
     parser.add_argument('--show_freq', type=int, default=50, help='show frequency')
     parser.add_argument('--summ_freq', type=int, default=100, help='summary frequenc')
@@ -38,13 +39,19 @@ def train():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     np.random.seed(args.seed)
     tf.set_random_seed(args.seed)
+    with open(os.path.join(args.logdir, 'args'), 'w') as f:
+        for k, v in vars(args).items():
+            f.write(k+':'+str(v))
 
     net = deepSimNet(True)
     data = util.DataFetcher(args.imdb_name)
     sess = tf.Session()
     
     # optimizer and train op
-    optimizer = tf.train.RMSPropOptimizer(args.lr, beta1=args.beta1) # TODO
+    if args.optimizer == 'RMS':
+        optimizer = tf.train.RMSPropOptimizer(args.lr, decay=args.beta1)
+    elif args.optimizer == 'Adam':
+        optimizer = tf.train.AdamOptimizer(args.lr, beta1=args.beta1)
     gen_grads = optimizer.compute_gradients(net.gen_loss, net.gen_variables)
     gen_train_op = optimizer.apply_gradients(gen_grads)
     dis_grads = optimizer.compute_gradients(net.dis_loss, net.dis_variables)
@@ -60,7 +67,7 @@ def train():
     # restore the encoder model
     try:
         saver = tf.train.Saver(net.enc_variables)
-        saver.restore(sess, tf.train.latest_checkpoint(args.enc_modelpath))
+        saver.restore(sess, tf.train.latest_checkpoint(args.encoder))
     except:
         raise Exception('fail to restore encoder. please check your encoder model')
 
@@ -98,16 +105,19 @@ def train():
             feed_dict = {
                     net.original_image: blobs['data']
                     }
-            for i in range(args.critic_iters):
-                sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
-                blobs = data.nextbatch()
-                feed_dict = { net.original_image: blobs['data'] }
+            #for i in range(args.critic_iters): # for WGAN train
+            #    sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
+            #    blobs = data.nextbatch()
+            #    feed_dict = { net.original_image: blobs['data'] }
 
             run_dict = {
                     'global_step': global_step,
                     'incr_global_step': incr_global_step,
                     }
-            run_dict['gen_train_op'] = gen_train_op
+            if g_flag:
+                run_dict['gen_train_op'] = gen_train_op
+            if d_flag:
+                run_dict['dis_train_op'] = dis_train_op
             if True or step % args.show_freq == 0:
                 run_dict['gen_loss'] = net.gen_loss
                 run_dict['dis_loss'] = net.dis_loss
@@ -117,10 +127,17 @@ def train():
                 run_dict['summary'] = summary_op
             
             results = sess.run(run_dict, feed_dict=feed_dict)
-            #if results['dis_loss'] < 0.3:
-            #    d_flag = False
-            #elif results['dis_loss'] > 0.7:
-            #    d_flag = True
+            
+            ratio = results['dis_loss'] / results['gen_loss']
+            if ratio < 1e-1 and d_flag:
+                d_flag = False
+                g_flag = True
+            if ratio > 5e-1 and not d_flag:
+                d_flag = True
+                g_flag = True
+            if ratio > 1e1 and g_flag:
+                d_flag = True
+                g_flag = False
 
             # save, summary and display
             if step % args.show_freq == 0:

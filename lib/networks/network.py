@@ -129,15 +129,16 @@ class Network(object):
             """
 
     @layer
-    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,activation='relu',bn=False, padding=DEFAULT_PADDING, trainable=True):
+    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,activation='relu',bn=False, init='msra', padding=DEFAULT_PADDING, trainable=True): # TODO: Note init of conv and upconv has been changed to msra, so maybe train FRCNN from scratch may fail !
         """ contribution by miraclebiu, and biased option"""
         self.validate_padding(padding)
         c_i = input.get_shape()[-1]
         convolve = lambda i, k: tf.nn.conv2d(i, k, [1, s_h, s_w, 1], padding=padding)
         with tf.variable_scope(name) as scope:
-
-            # init_weights = tf.truncated_normal_initializer(0.0, stddev=0.001)
-            init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
+            if init == 'origin':
+                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
+            elif init == 'msra':
+                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=2.0, mode='FAN_IN', uniform=False)
             init_biases = tf.constant_initializer(0.0)
             kernel = self.make_var('weights', [k_h, k_w, c_i, c_o], init_weights, trainable, \
                                    regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
@@ -156,7 +157,6 @@ class Network(object):
                     h = self.leaky_relu(h)
             return h
 
-    @layer
     def batch_norm(self, input, scope='batchnorm'):
         # http://stackoverflow.com/a/34634291/2267819
         with tf.variable_scope(scope):
@@ -175,13 +175,11 @@ class Network(object):
             normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
             return normalized
 
-    @layer
     def leaky_relu(self, input, alpha=0.3, name='leaky_relu'):
         return tf.maximum(alpha*input, input, name)
 
     @layer
-    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, activation='leaky_relu', bn=False, padding=DEFAULT_PADDING,
-             trainable=True):
+    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, activation='relu', bn=False, init='msra', padding=DEFAULT_PADDING, trainable=True):
         """ up-conv"""
         self.validate_padding(padding)
 
@@ -198,8 +196,10 @@ class Network(object):
         filter_shape = [ksize, ksize, c_o, c_in]
 
         with tf.variable_scope(name) as scope:
-            # init_weights = tf.truncated_normal_initializer(0.0, stddev=0.01)
-            init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
+            if init == 'origin':
+                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
+            elif init == 'msra':
+                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=2.0, mode='FAN_IN', uniform=False) # MSRA
             filters = self.make_var('weights', filter_shape, init_weights, trainable, \
                                    regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
             deconv = tf.nn.conv2d_transpose(input, filters, output_shape,

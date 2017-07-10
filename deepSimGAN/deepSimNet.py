@@ -46,18 +46,17 @@ class deepSimNet(Network):
         # discriminator trainable variables
         self.dis_variables = [var for var in tf.trainable_variables() if var.name.startswith('discriminator')]
         # encoder variables to restore
-        self.enc_variables = [var for var in tf.all_variables() if var not in tf.trainable_variables()]
+        self.enc_variables = [var for var in tf.all_variables() if var not in self.gen_variables and var not in self.dis_variables]
 
         # losses
-        self.recon_loss = cfg.RECON_WEIGHT * tf.losses.mean_squared_error(self.real_image,  self.fake_image)
-        self.feat_loss = cfg.FEAT_WEIGHT * tf.losses.mean_squared_error(self.real_cmp_h, self.fake_cmp_h)
+        self.recon_loss = cfg.RECON_WEIGHT * tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(self.real_image - self.fake_image),reduction_indices=1)))
+        self.feat_loss = cfg.FEAT_WEIGHT * tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(self.real_cmp_h - self.fake_cmp_h),reduction_indices=1)))
         # final losses
-        self.gen_loss = self.recon_loss + self.feat_loss - cfg.DIS_WEIGHT * tf.reduce_mean(self.fake_score_logit)
-        self.dis_loss = - tf.reduce_mean(self.real_score_logit - self.fake_score_logit)
-        #shape = tf.shape(self.fake_score_logit)
-        #self.gen_loss = self.recon_loss + self.feat_loss + cfg.DIS_WEIGHT * tf.losses.sigmoid_cross_entropy(tf.ones(shape), self.fake_score_logit)
-        #self.dis_loss = tf.losses.sigmoid_cross_entropy(tf.ones(shape), self.real_score_logit) + tf.losses.sigmoid_cross_entropy(tf.zeros(shape), self.fake_score_logit)
-        # self.gen_loss = self.recon_loss + self.feat_loss
+        #self.gen_loss = self.recon_loss + self.feat_loss + cfg.DIS_WEIGHT * tf.reduce_mean(self.fake_score_logit)
+        #self.dis_loss = tf.reduce_mean(self.real_score_logit - self.fake_score_logit)
+        shape = tf.shape(self.fake_score_logit)
+        self.gen_loss = self.recon_loss + self.feat_loss + cfg.DIS_WEIGHT * tf.losses.sigmoid_cross_entropy(tf.zeros(shape), self.fake_score_logit)
+        self.dis_loss = cfg.DIS_WEIGHT * tf.losses.sigmoid_cross_entropy(tf.zeros(shape), self.real_score_logit) + tf.losses.sigmoid_cross_entropy(tf.ones(shape), self.fake_score_logit)
 
         if debug:
             print ' ----- DEBUG NETWORK KEY TENSOR ----'
@@ -107,19 +106,20 @@ class deepSimNet(Network):
     def Generator(self, inv_h):
         self.layers = {}
         self.layers['inv_h'] = inv_h
+        act = 'leaky_relu'
         (self.feed('inv_h')
-             .fc(4096, activation='leaky_relu', name='defc7', trainable=self.trainable)
-             .fc(4096, activation='leaky_relu', name='defc6', trainable=self.trainable)
-             .fc(4096, activation='leaky_relu', name='defc5', trainable=self.trainable)
+             .fc(4096, name='defc7', activation=act, trainable=self.trainable)
+             .fc(4096, name='defc6', activation=act, trainable=self.trainable)
+             .fc(4096, name='defc5', activation=act, trainable=self.trainable)
              .h_reshape(shape=[4, 4, 256], name='reshape_defc5')
-             .upconv(shape=None, c_o=256, ksize=4, stride=2, name='deconv5', trainable=self.trainable)   # 8x8, act is leaky
-             .upconv(shape=None, c_o=512, ksize=3, stride=1, name='deconv5_1', trainable=self.trainable) # 8x8
-             .upconv(shape=None, c_o=256, ksize=4, stride=2, name='deconv4', trainable=self.trainable)   # 16x16
-             .upconv(shape=None, c_o=256, ksize=3, stride=1, name='deconv4_1', trainable=self.trainable) # 16x16
-             .upconv(shape=None, c_o=128, ksize=4, stride=2, name='deconv3', trainable=self.trainable)   # 32x32
-             .upconv(shape=None, c_o=128, ksize=3, stride=1, name='deconv3_1', trainable=self.trainable) # 32x32
-             .upconv(shape=None, c_o=64,  ksize=4, stride=2, name='deconv2', trainable=self.trainable)   # 64x64
-             .upconv(shape=None, c_o=32,  ksize=4, stride=2, name='deconv1', trainable=self.trainable)   # 128x128
+             .upconv(shape=None, c_o=256, ksize=4, stride=2, name='deconv5', activation=act, trainable=self.trainable)   # 8x8, 
+             .upconv(shape=None, c_o=512, ksize=3, stride=1, name='deconv5_1', activation=act, trainable=self.trainable) # 8x8
+             .upconv(shape=None, c_o=256, ksize=4, stride=2, name='deconv4', activation=act, trainable=self.trainable)   # 16x16
+             .upconv(shape=None, c_o=256, ksize=3, stride=1, name='deconv4_1', activation=act, trainable=self.trainable) # 16x16
+             .upconv(shape=None, c_o=128, ksize=4, stride=2, name='deconv3', activation=act, trainable=self.trainable)   # 32x32
+             .upconv(shape=None, c_o=128, ksize=3, stride=1, name='deconv3_1', activation=act, trainable=self.trainable) # 32x32
+             .upconv(shape=None, c_o=64,  ksize=4, stride=2, name='deconv2', activation=act, trainable=self.trainable)   # 64x64
+             .upconv(shape=None, c_o=32,  ksize=4, stride=2, name='deconv1', activation=act, trainable=self.trainable)   # 128x128
              .upconv(shape=None, c_o=3,   ksize=4, stride=2, activation=None, name='deconv0', trainable=self.trainable))   # 256x256
 
         for k, var in self.layers.items():
