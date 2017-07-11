@@ -103,8 +103,11 @@ class deepSimNet(Network):
     def Generator(self, inv_h):
         self.layers = {}
         self.layers['inv_h'] = inv_h
-        act = 'relu'
+        act = 'leaky_relu'
         (self.feed('inv_h')
+             .fc(4096, name='defc7', activation=act, trainable=self.trainable)
+             .fc(4096, name='defc6', activation=act, trainable=self.trainable)
+             .fc(4096, name='defc5', activation=act, trainable=self.trainable)
              .h_reshape(shape=[4, 4, 256], name='reshape_defc5')
              .upconv(shape=None, c_o=256, ksize=4, stride=2, name='deconv5', activation=act, trainable=self.trainable)   # 8x8, 
              .upconv(shape=None, c_o=512, ksize=3, stride=1, name='deconv5_1', activation=act, trainable=self.trainable) # 8x8
@@ -129,19 +132,32 @@ class deepSimNet(Network):
     def Discriminator(self, image, feature):
         image.set_shape([None, self.height, self.width, 3])
         self.layers['image'] = image
-        act = 'leaky_relu'
+        self.layers['feat'] = feature
+        act = 'relu'
         (self.feed('image')
              .conv(7, 7, 32, 4, 4, name='conv1', padding='VALID', activation=act, trainable=self.trainable) # 56x56
              .conv(5, 5, 64, 1, 1, name='conv2', padding='VALID', activation=act, trainable=self.trainable) # 52x52
              .conv(3, 3, 128, 2,2, name='conv3', padding='VALID', activation=act, trainable=self.trainable) # 25x25
              .conv(3, 3, 256, 1,1, name='conv4', padding='VALID', activation=act, trainable=self.trainable) # 23x23
              .conv(3, 3, 256, 2,2, name='conv5', padding='VALID', activation=act, trainable=self.trainable) # 11x11
-             .conv(3, 3, 512, 2,2, name='conv6', padding='VALID', activation=act, trainable=self.trainable) # 5x5
-             .conv(3, 3, 512, 2,2, name='conv7', padding='VALID', activation=act, trainable=self.trainable) # 2x2
-             .avg_pool(2, 2, 2, 2, name='pool7', padding='VALID')
-             .reshape_toh(name='pool7_reshape') # 256
-             .fc(1, name='fc8', activation=None, trainable=self.trainable))
-        return self.get_output('fc8')       # range (-inf, inf)
+             .avg_pool(11, 11, 11, 11, name='pool5', padding='VALID')
+             .reshape_toh(name='pool5_reshape')) # 256
+        (self.feed('feat')
+             .fc(1024, name='feat_fc1', trainable=self.trainable)
+             .fc(512, name='feat_fc2', trainable=self.trainable))
+        (self.feed('pool5_reshape', 'feat_fc2')
+             .concat(axis=1, name='concat_fc5')) # 256+512=768
+        if self.trainable:  # train phase
+            (self.feed('concat_fc5')
+                 .dropout(0.5, name='drop5')
+                 .fc(512, name='fc6', trainable=self.trainable)
+                 .dropout(0.5, name='drop6')
+                 .fc(1, name='fc7', activation=None, trainable=self.trainable))
+        else:               # test phase
+            (self.feed('concat_fc5')
+                 .fc(512, name='fc6', trainable=self.trainable)
+                 .fc(1, name='fc7', activation=None, trainable=self.trainable))
+        return self.get_output('fc7')       # range (-inf, inf)
 
 
 def test():
