@@ -12,8 +12,8 @@ import time
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', default='0', type=str)
-    parser.add_argument('--iters', default=200000, type=int)
-    parser.add_argument('--imdb_name', default='voc_2012_train', type=str, help='dataset to train on')
+    parser.add_argument('--iters', default=100000, type=int)
+    parser.add_argument('--imdb_name', default='voc_2012_trainval', type=str, help='dataset to train on')
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--logdir', type=str, required=True, help='log dir to store checkpoints and summary')
     parser.add_argument('--encoder', type=str, required=True, help='where is the encoder trained model')
@@ -27,12 +27,12 @@ def parse_args():
     parser.add_argument('--clip0', type=float, default=-0.01)
     parser.add_argument('--clip1', type=float, default=0.01)
     parser.add_argument('--critic_iters', type=int, default=5)
-    parser.add_argument('--gan', choices=['wgan', 'lsgan'], default='lsgan')
+    parser.add_argument('--gan', choices=['wgan', 'lsgan', 'gan'], default='lsgan')
     parser.add_argument('--mode', default='train', choices=['train', 'test'])
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--recon_w', default=0, type=float)
-    parser.add_argument('--feat_w', default=0, type=float)
-    parser.add_argument('--dis_w', default=0, type=float)
+    parser.add_argument('--recon_w', default=1, type=float)
+    parser.add_argument('--feat_w', default=0.01, type=float)
+    parser.add_argument('--dis_w', default=0.005, type=float)
     args = parser.parse_args()
     return args
 args = parse_args()
@@ -121,7 +121,7 @@ def train():
                     sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
                     blobs = data.nextbatch(args.batch_size)
                     feed_dict = { net.original_image: blobs['data'] }
-            elif args.gan == 'lsgan':
+            elif args.gan == 'lsgan' or args.gan == 'gan':
                 run_dict['dis_train_op'] = dis_train_op
 
             run_dict['global_step'] = global_step

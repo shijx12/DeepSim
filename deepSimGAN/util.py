@@ -117,7 +117,7 @@ def conv(input, k_h, k_w, c_o, s_h, s_w, name, biased=True, activation='relu', b
         h = tf.nn.conv2d(input, kernel, [1, s_h, s_w, 1], padding=pad)
         if biased:
             init_bias = tf.constant_initializer(0.0)
-            bias = make_var('bias', [c_o], init_bias, trainable)
+            bias = make_var('biases', [c_o], init_bias, trainable)
             h = tf.nn.bias_add(h, bias)
         if bn:
             h = batch_norm(h)
@@ -142,9 +142,10 @@ def upconv(input, c_o, ksize, stride, name, biased=False, activation='relu', bn=
             raise Exception('Invalid init')
         kernel = make_var('weights', kernel_shape, init_weights, trainable, regularizer=l2_regularizer(cfg.WEIGHT_DECAY))
         h = tf.nn.conv2d_transpose(input, kernel, output_shape, [1, stride, stride, 1], padding=pad)
+        h = tf.reshape(h, output_shape) # reshape is necessary
         if biased:
             init_bias = tf.constant_initializer(0.0)
-            bias = make_var('bias', [c_o], init_bias, trainable)
+            bias = make_var('biases', [c_o], init_bias, trainable)
             h = tf.nn.bias_add(h, bias)
         if bn:
             h = batch_norm(h)
@@ -171,7 +172,7 @@ def fc(input, c_o, name, biased=True, activation='relu', bn=False, init='msra', 
         h = tf.matmul(input, weights)
         if biased:
             init_bias = tf.constant_initializer(0.0)
-            bias = make_var('bias', [c_o], init_bias, trainable)
+            bias = make_var('biases', [c_o], init_bias, trainable)
             h = tf.nn.bias_add(h, bias)
         if bn:
             h = batch_norm(h)
@@ -181,3 +182,8 @@ def fc(input, c_o, name, biased=True, activation='relu', bn=False, init='msra', 
             h = leaky_relu(h)
         return h
 
+
+def sum_act(h, sparsity=False):
+    tf.summary.histogram('activation/'+h.name, h)
+    if sparsity:
+        tf.summary.scalar('sparsity/'+h.name, tf.nn.zero_fraction(h))

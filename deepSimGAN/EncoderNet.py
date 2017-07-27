@@ -1,80 +1,54 @@
 import tensorflow as tf
 import numpy as np
 import argparse
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # to find ..lib
 import time
 import math
 from tqdm import tqdm
-from lib.networks.network import Network
 import cfg
-import util
+from util import *
 
-class Encoder_net(Network):
+class Encoder_net():
     def __init__(self, trainable=True):
-        self.inputs = []
         self.original_image = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='original_image')
-        self.image = util.subtract_mean(util.crop(self.original_image, cfg.RESIZED_SIZE, cfg.HEIGHT))  # crop to fixed size and subtract mean pixel value. NOTE: subtract_mean is necessary!
-        self.layers = dict({'image': self.image})
-        # Note: We don't consider the background class at the forked_VGGnet!!!!!!!
-        self.n_classes = cfg.N_CLASSES
-        self.classes = tf.placeholder(tf.float32, shape=[None, self.n_classes])
-        self.trainable = trainable
-        self.setup()
-        
-        # im_info: a list of [image_height, image_width, scale_ratios]
-        #self.layers['hack_roi'] = tf.py_func(
-        #    lambda im_info: np.array([[0, 0, 0, im_info[0][1], im_info[0][0]]], dtype=np.float32), # [[image_index, x0,y0,x1,y1]] 
-        #    [self.im_info], 
-        #    tf.float32, name='hack_roi')
+        self.image = subtract_mean(crop(self.original_image, cfg.RESIZED_SIZE, cfg.IMAGE_SIZE))  # crop to fixed size and subtract
+        self.classes = tf.placeholder(tf.float32, shape=[None, cfg.N_CLASSES])
 
-    def setup(self):
-        (self.feed('image')
-             .conv(3, 3, 64, 1, 1, name='conv1_1', trainable=False)
-             .conv(3, 3, 64, 1, 1, name='conv1_2', trainable=False)
-             .max_pool(2, 2, 2, 2, padding='VALID', name='pool1')
-             .conv(3, 3, 128, 1, 1, name='conv2_1', trainable=False)
-             .conv(3, 3, 128, 1, 1, name='conv2_2', trainable=False)
-             .max_pool(2, 2, 2, 2, padding='VALID', name='pool2')
-             .conv(3, 3, 256, 1, 1, name='conv3_1', trainable=self.trainable)
-             .conv(3, 3, 256, 1, 1, name='conv3_2', trainable=self.trainable)
-             .conv(3, 3, 256, 1, 1, name='conv3_3', trainable=self.trainable)
-             .max_pool(2, 2, 2, 2, padding='VALID', name='pool3')
-             .conv(3, 3, 512, 1, 1, name='conv4_1', trainable=self.trainable)
-             .conv(3, 3, 512, 1, 1, name='conv4_2', trainable=self.trainable)
-             .conv(3, 3, 512, 1, 1, name='conv4_3', trainable=self.trainable)
-             .max_pool(2, 2, 2, 2, padding='VALID', name='pool4')
-             .conv(3, 3, 512, 1, 1, name='conv5_1', trainable = self.trainable)
-             .conv(3, 3, 512, 1, 1, name='conv5_2', trainable = self.trainable)
-             .conv(3, 3, 512, 1, 1, name='conv5_3', trainable = self.trainable) # 14x14x512
-             .max_pool(2, 2, 2, 2, padding='VALID', name='pool5'))  # 7x7x512
-        if self.trainable:   # for training phase
-            (self.feed('pool5')
-                .fc(4096, name='fc6', trainable=True)
-                .dropout(0.5, name='drop6')
-                .fc(4096, name='fc7', trainable=True)
-                .dropout(0.5, name='drop7')
-                .fc(self.n_classes, activation=None, name='cls_score', trainable=True))
-        else:   # for test phase, just remove the dropout layer.
-            (self.feed('pool5')
-                .fc(4096, name='fc6', trainable=False)
-                .fc(4096, name='fc7', trainable=False)
-                .fc(self.n_classes, activation=None, name='cls_score', trainable=False))
+        h = conv(self.image, 3, 3, 64, 1, 1, name='conv1_1', trainable=False)
+        h = conv(h, 3, 3, 64, 1, 1, name='conv1_2', trainable=False)
+        h = max_pool(h, 2, 2, 2, 2, pad='VALID', name='pool1')
+        h = conv(h, 3, 3, 128, 1, 1, name='conv2_1', trainable=False)
+        h = conv(h, 3, 3, 128, 1, 1, name='conv2_2', trainable=False)
+        h = max_pool(h, 2, 2, 2, 2, pad='VALID', name='pool2')
+        h = conv(h, 3, 3, 256, 1, 1, name='conv3_1', trainable=trainable)
+        h = conv(h, 3, 3, 256, 1, 1, name='conv3_2', trainable=trainable)
+        h = conv(h, 3, 3, 256, 1, 1, name='conv3_3', trainable=trainable)
+        h = max_pool(h, 2, 2, 2, 2, pad='VALID', name='pool3')
+        h = conv(h, 3, 3, 512, 1, 1, name='conv4_1', trainable=trainable)
+        h = conv(h, 3, 3, 512, 1, 1, name='conv4_2', trainable=trainable)
+        h = conv(h, 3, 3, 512, 1, 1, name='conv4_3', trainable=trainable)
+        h = max_pool(h, 2, 2, 2, 2, pad='VALID', name='pool4')
+        h = conv(h, 3, 3, 512, 1, 1, name='conv5_1', trainable = trainable)
+        h = conv(h, 3, 3, 512, 1, 1, name='conv5_2', trainable = trainable)
+        h = conv(h, 3, 3, 512, 1, 1, name='conv5_3', trainable = trainable) # 14x14x512
+        h = max_pool(h, 2, 2, 2, 2, pad='VALID', name='pool5') # 7x7x512
+        h = tf.reshape(h, [-1, 7*7*512], name='reshape_pool5')
+        if trainable:
+            h = fc(h, 4096, name='fc6', trainable=trainable)
+            h = tf.nn.dropout(h, 0.5, name='drop6')
+            h = fc(h, 4096, name='fc7', trainable=trainable)
+            h = tf.nn.dropout(h, 0.5, name='drop7')
+        else:
+            h = fc(h, 4096, name='fc6', trainable=trainable)
+            h = fc(h, 4096, name='fc7', trainable=trainable)
+        self.outputs = fc(h, cfg.N_CLASSES, activation='', name='cls_score', trainable=trainable)
 
         # Classification loss.
-        self.outputs = self.layers['cls_score']
         self.cls_loss = tf.losses.sigmoid_cross_entropy(self.classes, self.outputs)
         self.outputs = tf.nn.sigmoid(self.outputs)
 
         # Variable collector.
         self.restore_variables = [var for var in tf.all_variables() if not var.name.startswith('cls_score')]
         self.trainable_variables = tf.trainable_variables()
-
-        for layer in ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3', 'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3', 'pool5', 'fc6', 'fc7', 'cls_score']:
-            h = self.get_output(layer)
-            tf.summary.histogram('Activation/'+h.name, h)
-            tf.summary.scalar('Sparsity/'+h.name, tf.nn.zero_fraction(h))
 
 def visual():
     fvgg = Encoder_net(True)
@@ -121,7 +95,7 @@ def train():
     tf.set_random_seed(args.seed)
 
     net = Encoder_net(True)
-    data = util.DataFetcher(args.imdb_name)
+    data = DataFetcher(args.imdb_name)
     sess = tf.Session()
 
     print('trainable variables:')
@@ -210,7 +184,7 @@ def test():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     
     net = Encoder_net(False)
-    data = util.DataFetcher(args.imdb_name)
+    data = DataFetcher(args.imdb_name)
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
 
