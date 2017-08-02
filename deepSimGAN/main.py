@@ -106,13 +106,15 @@ def train():
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess, coord)
     tic = time.time()
-
+    d_flag, g_flag = True, True
     try:
         for step in range(1, args.iters+1):
             tic_ = time.time()
+            noise_sigma = 2/256.0*(1-step/500000.0)
             blobs = data.nextbatch(args.batch_size)
             feed_dict = {
-                    net.original_image: blobs['data']
+                    net.original_image: blobs['data'],
+                    net.noise_sigma: noise_sigma
                     }
             run_dict = {}
 
@@ -122,11 +124,16 @@ def train():
                     blobs = data.nextbatch(args.batch_size)
                     feed_dict = { net.original_image: blobs['data'] }
             elif args.gan == 'lsgan' or args.gan == 'gan':
-                run_dict['dis_train_op'] = dis_train_op
+                if d_flag:
+                    run_dict['dis_train_op'] = dis_train_op
 
             run_dict['global_step'] = global_step
             run_dict['incr_global_step'] = incr_global_step
-            run_dict['gen_train_op'] = gen_train_op
+            if g_flag:
+                run_dict['gen_train_op'] = gen_train_op
+            run_dict['dis_loss'] = net.dis_loss
+            run_dict['gen_dis_loss'] = net.gen_dis_loss
+
             if args.debug:
                 run_dict['gen_grads'] = gen_grads
                 run_dict['dis_grads'] = dis_grads
@@ -158,7 +165,21 @@ def train():
                 print('-------------- recording summary --------------')
                 summary_writer.add_summary(results['summary'], results['global_step'])
 
-
+            ratio = results['dis_loss'] / results['gen_dis_loss']
+            if ratio < 0.1 and d_flag:  # Stop D and start G. 0.5
+                g_flag = True
+                d_flag = False
+                print('G training...')
+            if ratio > 0.5 and not d_flag: # Start D. 3
+                g_flag = True
+                d_flag = True
+                print('Simultaneous training...')
+            if ratio > 10 and g_flag:   # G stop. 5
+                g_flag = False
+                d_flag = True
+                print('D training')
+            if step < 10000:
+                g_flag = True
     except KeyboardInterrupt:
         print('End Training...')
     finally:

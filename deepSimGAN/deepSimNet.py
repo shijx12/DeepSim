@@ -10,6 +10,7 @@ class deepSimNet():
         self.real_image = crop(self.original_image, cfg.RESIZED_SIZE, cfg.IMAGE_SIZE)  # crop to fixed size
         self.real_image = prep(self.real_image)    # range [-1, 1]
         debug = False
+        self.noise_sigma = tf.placeholder(tf.float32, shape=(), name='noise_sigma')
 
         with tf.name_scope('real_encoder'):
             with tf.variable_scope(''): # NOTE: using an empty string as variable_scope, aims to be consistent with EncoderNet's variable name and to restore from trained EncoderNet's model
@@ -25,10 +26,10 @@ class deepSimNet():
 
         with tf.name_scope('real_disc'):
             with tf.variable_scope('discriminator'):
-                self.real_score_logit = Discriminator(self.real_image, self.real_cmp_h, trainable)
+                self.real_score_logit = Discriminator(self.real_image, self.real_cmp_h, trainable, self.noise_sigma)
         with tf.name_scope('fake_disc'):
             with tf.variable_scope('discriminator', reuse=True):
-                self.fake_score_logit = Discriminator(self.fake_image, self.fake_cmp_h, trainable)
+                self.fake_score_logit = Discriminator(self.fake_image, self.fake_cmp_h, trainable, self.noise_sigma)
 
         # generator trainable variables
         self.gen_variables = [var for var in tf.trainable_variables() if var.name.startswith('generator')]
@@ -39,9 +40,9 @@ class deepSimNet():
 
         # losses
         self.recon_loss = recon_weight * tf.reduce_mean(tf.square(self.real_image - self.fake_image))
-        # self.recon_loss = recon_weight * tf.reduce_mean(tf.abs(self.real_image - self.fake_image))    # use L1
+        # self.recon_loss = recon_weight * tf.reduce_mean(tf.abs(self.real_image - self.fake_image))    # use L1 TODO
         self.feat_loss = feat_weight * tf.reduce_mean(tf.square(self.real_cmp_h - self.fake_cmp_h))
-        # self.feat_loss = feat_weight * tf.reduce_mean(tf.losses.cosine_distance(self.real_cmp_h, self.fake_cmp_h)) # use cos
+        #self.feat_loss = feat_weight * tf.reduce_mean(tf.losses.cosine_distance(self.real_cmp_h, self.fake_cmp_h, dim=1)) # use cos
         if gan_type == 'wgan':
             self.gen_dis_loss = dis_weight * tf.reduce_mean(self.fake_score_logit)
             self.dis_loss = dis_weight * tf.reduce_mean(self.real_score_logit - self.fake_score_logit)
@@ -99,7 +100,9 @@ def Encoder(image): # Untrainable at all. Must be restored !!
 def Generator(inverted_h, trainable): 
     act = 'leaky_relu'
     bn = True
-    h = fc(inverted_h, 4096, name='defc5', activation=act, init='msra', bn=True, trainable=trainable)
+    h = fc(inverted_h, 4096, name='defc7', activation=act, init='msra', bn=True, trainable=trainable)
+    h = fc(h, 4096, name='defc6', activation=act, init='msra', bn=True, trainable=trainable)
+    h = fc(h, 4096, name='defc5', activation=act, init='msra', bn=True, trainable=trainable)
     h = tf.reshape(h, [-1, 4, 4, 256], name='reshape_defc5')
     h = upconv(h, c_o=256, ksize=4, stride=2, name='deconv5', activation=act, bn=bn, trainable=trainable)   # 8x8, 
     h = upconv(h, c_o=512, ksize=3, stride=1, name='deconv5_1', activation=act, bn=bn, trainable=trainable) # 8x8
@@ -120,9 +123,10 @@ def Generator(inverted_h, trainable):
     return fake_image
              
        
-def Discriminator(image, feature, trainable):
+def Discriminator(image, feature, trainable, noise_sigma):
     image.set_shape([None, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE, 3])
-    act = 'relu'
+    # TODO image = image + tf.random_normal(shape=tf.shape(image), mean=0.0, stddev=noise_sigma)
+    act = 'leaky_relu'
     bn = True
     pad = 'VALID'
     h = conv(image, 7, 7, 32, 4, 4, name='conv1', pad=pad, activation=act, bn=False, trainable=trainable) # 56x56
