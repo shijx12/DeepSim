@@ -13,13 +13,21 @@ class ActMaxNet():
             with tf.variable_scope('generator'):
                 self.fake_image = Generator(self.h, trainable=False)
         with tf.name_scope('encoder'):
-            self.fake_h, __, self.cls_score = Encoder(self.fake_image) 
+            self.fake_h, __, self.cls_score = Encoder(self.fake_image, trainable=False) 
 
         self.gen_variables = [var for var in tf.global_variables() if var.name.startswith('generator')]
         self.enc_variables = [var for var in tf.global_variables() if var not in self.gen_variables]
 
-    def sample(self, iters):
-        pass
+    def sample(self, label, iters=100): # label [1,20]
+        loss = 1-tf.sigmoid(self.cls_score[label-1])
+        grad = tf.gradients(loss, self.h)
+        apply = self.h - tf.multiply(grad[0], epsilon)
+
+        h_val = np.random(shape=[1, cfg.INVERTED_H_DIM])
+        with tf.Session() as sess:
+            for i in iters:
+                h_val, grad_val = sess.run([apply, grad], feed_dict={self.h, h_val})
+
 
 
 def parse_args():

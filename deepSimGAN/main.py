@@ -16,16 +16,17 @@ def parse_args():
     parser.add_argument('--imdb_name', default='voc_2012_trainval', type=str, help='dataset to train on')
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--logdir', type=str, required=True, help='log dir to store checkpoints and summary')
+    parser.add_argument('--step1dir', type=str)
     parser.add_argument('--encoder', type=str, required=True, help='where is the encoder trained model')
     parser.add_argument('--seed', type=int, default=123456789)
     parser.add_argument('--optimizer', default='RMS', choices=['Adam', 'RMS'])
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--beta1', type=float, default=0.9, help='beta1 of optimizer')
-    parser.add_argument('--save_freq', type=int, default=10000, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=50000, help='save frequency')
     parser.add_argument('--show_freq', type=int, default=50, help='show frequency')
     parser.add_argument('--summ_freq', type=int, default=100, help='summary frequenc')
-    parser.add_argument('--clip0', type=float, default=-0.01)
-    parser.add_argument('--clip1', type=float, default=0.01)
+    parser.add_argument('--clip0', type=float, default=-0.05)
+    parser.add_argument('--clip1', type=float, default=0.05)
     parser.add_argument('--critic_iters', type=int, default=5)
     parser.add_argument('--gan', choices=['wgan', 'lsgan', 'gan'], default='lsgan')
     parser.add_argument('--mode', default='train', choices=['train', 'test'])
@@ -33,6 +34,7 @@ def parse_args():
     parser.add_argument('--recon_w', default=1, type=float)
     parser.add_argument('--feat_w', default=0.01, type=float)
     parser.add_argument('--dis_w', default=0.005, type=float)
+    parser.add_argument('--manual', action='store_true')
     args = parser.parse_args()
     return args
 args = parse_args()
@@ -48,7 +50,7 @@ def train():
         for k, v in vars(args).items():
             f.write(k+':'+str(v))
 
-    net = deepSimNet(args.recon_w, args.feat_w, args.dis_w, args.gan)
+    net = deepSimNet(args.batch_size, args.recon_w, args.feat_w, args.dis_w, args.gan)
     data = util.DataFetcher(args.imdb_name)
     sess = tf.Session()
     
@@ -78,7 +80,10 @@ def train():
         raise Exception('fail to restore encoder. please check your encoder model')
 
     saver = tf.train.Saver(max_to_keep=None)
-    ckpt = tf.train.get_checkpoint_state(args.logdir)
+    if args.step1dir:
+        ckpt = tf.train.get_checkpoint_state(args.step1dir)
+    else:
+        ckpt = tf.train.get_checkpoint_state(args.logdir)
     if ckpt and ckpt.model_checkpoint_path:
         saver.restore(sess, ckpt.model_checkpoint_path)
         print('deepSimNet restored..')
@@ -122,7 +127,10 @@ def train():
                 for i in range(args.critic_iters): # for WGAN train
                     sess.run([dis_train_op, clip_disc_op], feed_dict=feed_dict)
                     blobs = data.nextbatch(args.batch_size)
-                    feed_dict = { net.original_image: blobs['data'] }
+                    feed_dict = {
+                            net.original_image: blobs['data'],
+                            net.noise_sigma: noise_sigma 
+                            }
             elif args.gan == 'lsgan' or args.gan == 'gan':
                 if d_flag:
                     run_dict['dis_train_op'] = dis_train_op
@@ -131,15 +139,16 @@ def train():
             run_dict['incr_global_step'] = incr_global_step
             if g_flag:
                 run_dict['gen_train_op'] = gen_train_op
-            run_dict['dis_loss'] = net.dis_loss
-            run_dict['gen_dis_loss'] = net.gen_dis_loss
+            if args.manual:
+                run_dict['dis_loss'] = net.dis_loss
+                run_dict['gen_dis_loss'] = net.gen_dis_loss
 
             if args.debug:
                 run_dict['gen_grads'] = gen_grads
                 run_dict['dis_grads'] = dis_grads
             if step % args.show_freq == 0:
-                run_dict['gen_loss'] = net.gen_loss
                 run_dict['dis_loss'] = net.dis_loss
+                run_dict['gen_dis_loss'] = net.gen_dis_loss
                 run_dict['recon_loss'] = net.recon_loss
                 run_dict['feat_loss'] = net.feat_loss
             if step % args.summ_freq == 0:
@@ -157,7 +166,7 @@ def train():
             if step % args.show_freq == 0:
                 rate = step / (time.time() - tic)
                 remaining = (args.iters+1-step) / rate
-                print(' step %6d , gen_loss: %5f , dis_loss: %5f , recon_loss: %5f , feat_loss: %5f, remaining %5dm' % (results['global_step'], results['gen_loss'], results['dis_loss'], results['recon_loss'], results['feat_loss'], remaining/60)) 
+                print(' step %6d , dis_loss: %3f , gen_dis_loss: %3f , recon_loss: %3f , feat_loss: %3f, remaining %5dm' % (results['global_step'], results['dis_loss'], results['gen_dis_loss'], results['recon_loss'], results['feat_loss'], remaining/60)) 
             if step % args.save_freq == 0:
                 print('================ saving model =================')
                 saver.save(sess, os.path.join(args.logdir, 'model'), global_step=results['global_step'])
@@ -165,21 +174,22 @@ def train():
                 print('-------------- recording summary --------------')
                 summary_writer.add_summary(results['summary'], results['global_step'])
 
-            ratio = results['dis_loss'] / results['gen_dis_loss']
-            if ratio < 0.1 and d_flag:  # Stop D and start G. 0.5
-                g_flag = True
-                d_flag = False
-                print('G training...')
-            if ratio > 0.5 and not d_flag: # Start D. 3
-                g_flag = True
-                d_flag = True
-                print('Simultaneous training...')
-            if ratio > 10 and g_flag:   # G stop. 5
-                g_flag = False
-                d_flag = True
-                print('D training')
-            if step < 10000:
-                g_flag = True
+            if args.manual:
+                ratio = results['dis_loss'] / results['gen_dis_loss']
+                if ratio < 1 and d_flag:  # Stop D and start G. 
+                    g_flag = True
+                    d_flag = False
+                    print('G training...')
+                if ratio > 2 and not d_flag: # Start D.
+                    g_flag = True
+                    d_flag = True
+                    print('Simultaneous training...')
+                if ratio > 20 and g_flag:   # G stop.
+                    g_flag = False
+                    d_flag = True
+                    print('D training')
+                if step < 10000:
+                    g_flag = True
     except KeyboardInterrupt:
         print('End Training...')
     finally:

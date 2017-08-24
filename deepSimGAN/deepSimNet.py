@@ -5,7 +5,7 @@ import cfg
 
 
 class deepSimNet():
-    def __init__(self, recon_weight, feat_weight, dis_weight, gan_type, trainable=True):
+    def __init__(self, batch_size, recon_weight, feat_weight, dis_weight, gan_type, trainable=True):
         self.original_image = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='original_image')
         self.real_image = crop(self.original_image, cfg.RESIZED_SIZE, cfg.IMAGE_SIZE)  # crop to fixed size
         self.real_image = prep(self.real_image)    # range [-1, 1]
@@ -50,8 +50,21 @@ class deepSimNet():
             self.gen_dis_loss = dis_weight * tf.reduce_mean(tf.square(self.fake_score_logit - 1))
             self.dis_loss = dis_weight * tf.reduce_mean(tf.square(self.real_score_logit - 1) + tf.square(self.fake_score_logit))
         elif gan_type == 'gan':
-            self.gen_dis_loss = -dis_weight * tf.reduce_mean(tf.log(tf.sigmoid(self.fake_score_logit)))
-            self.dis_loss = dis_weight * tf.reduce_mean(tf.log(1 - tf.sigmoid(self.real_score_logit)) + tf.log(tf.sigmoid(self.fake_score_logit)))
+            label_shape = [batch_size, 1]
+            g_fake_loss = tf.nn.softmax_cross_entropy_with_logits(
+                    logits=self.fake_score_logit,
+                    labels=tf.one_hot(indices=[1]*batch_size, depth=2)
+                    )
+            self.gen_dis_loss = tf.reduce_mean(g_fake_loss) 
+            d_real_loss = tf.nn.softmax_cross_entropy_with_logits(
+                    logits=self.real_score_logit,
+                    labels=tf.one_hot(indices=[1]*batch_size, depth=2)
+                    )
+            d_fake_loss = tf.nn.softmax_cross_entropy_with_logits(
+                    logits=self.fake_score_logit,
+                    labels=tf.one_hot(indices=[0]*batch_size, depth=2)
+                    )
+            self.dis_loss = tf.reduce_mean(d_real_loss + d_fake_loss)
         self.gen_loss = self.recon_loss + self.feat_loss + self.gen_dis_loss 
 
         if debug:
@@ -98,7 +111,7 @@ def Encoder(image): # Untrainable at all. Must be restored !!
 
 
 def Generator(inverted_h, trainable): 
-    act = 'leaky_relu'
+    act = 'relu'
     bn = True
     h = fc(inverted_h, 4096, name='defc7', activation=act, init='msra', bn=True, trainable=trainable)
     h = fc(h, 4096, name='defc6', activation=act, init='msra', bn=True, trainable=trainable)
@@ -125,7 +138,8 @@ def Generator(inverted_h, trainable):
        
 def Discriminator(image, feature, trainable, noise_sigma):
     image.set_shape([None, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE, 3])
-    # TODO image = image + tf.random_normal(shape=tf.shape(image), mean=0.0, stddev=noise_sigma)
+    # image = image + tf.random_normal(shape=tf.shape(image), mean=0.0, stddev=noise_sigma) # TODO
+    # feature = feature + tf.random_normal(shape=tf.shape(feature), mean=0.0, stddev=2*noise_sigma) # TODO
     act = 'leaky_relu'
     bn = True
     pad = 'VALID'
@@ -145,10 +159,10 @@ def Discriminator(image, feature, trainable, noise_sigma):
         h = tf.nn.dropout(h, 0.5, name='drop5')
         h = fc(h, 512, name='fc6', activation=act, bn=bn, trainable=trainable)
         h = tf.nn.dropout(h, 0.5, name='drop6')
-        h = fc(h, 1, name='fc7', activation='', bn=False, trainable=trainable)
+        h = fc(h, 2, name='fc7', activation='', bn=False, trainable=trainable)
     else:               # test phase
         h = fc(h, 512, name='fc6', activation=act, bn=bn, trainable=trainable)
-        h = fc(h, 1, name='fc7', activation='', bn=False, trainable=trainable)
+        h = fc(h, 2, name='fc7', activation='', bn=False, trainable=trainable)
     return h         # range (-inf, inf)
 
 
