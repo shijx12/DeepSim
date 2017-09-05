@@ -59,7 +59,7 @@ class deepSimNet():
                     )
             d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                     logits=self.fake_score_logit,
-                    labels=tf.ones_like(self.fake_score_logit)
+                    labels=tf.zeros_like(self.fake_score_logit)
                     )
             self.dis_loss = tf.reduce_mean(d_real_loss + d_fake_loss)
         self.gen_loss = recon_weight * self.recon_loss + feat_weight * self.feat_loss + dis_weight * self.gen_dis_loss 
