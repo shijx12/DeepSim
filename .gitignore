@@ -19,4 +19,5 @@ logs
 utest
 tmp
 trashcode/*
+tricks.py
 deepSimGAN/actmax.py
