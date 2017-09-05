@@ -5,6 +5,7 @@ import time
 import math
 from tqdm import tqdm
 import cfg
+import os
 from util import *
 
 class Encoder_net():
@@ -50,6 +51,20 @@ class Encoder_net():
         self.restore_variables = [var for var in tf.all_variables() if not var.name.startswith('cls_score')]
         self.trainable_variables = tf.trainable_variables()
 
+    def load(self, data_path, session, ignore_missing=False):
+        data_dict = np.load(data_path).item()
+        for key in data_dict:
+            with tf.variable_scope(key, reuse=True):
+                for subkey in data_dict[key]:
+                    try:
+                        var = tf.get_variable(subkey)
+                        session.run(var.assign(data_dict[key][subkey]))
+                        print 'assign pretrain model '+subkey+' to '+key
+                    except ValueError:
+                        print 'ignore '+key
+                        if not ignore_missing:
+                            raise
+
 def visual():
     fvgg = Encoder_net(True)
     sess = tf.Session()
@@ -73,7 +88,7 @@ def parse_args():
     parser.add_argument('--seed', dest='seed', type=int, default=123456789)
     parser.add_argument('--logdir', type=str, required=True, help='log dir to store checkpoints and save results')
     parser.add_argument('--restore_step', type=str, help='restore step for test mode')
-    parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
+    parser.add_argument('--lr', type=float, default=0.00001, help='learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 of optimizer')
     parser.add_argument('--save_freq', type=int, default=10000, help='save frequency')
     parser.add_argument('--show_freq', type=int, default=100, help='show frequency')

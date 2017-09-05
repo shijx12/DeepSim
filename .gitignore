@@ -18,3 +18,5 @@ output
 logs
 utest
 tmp
+trashcode/*
+deepSimGAN/actmax.py

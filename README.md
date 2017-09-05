@@ -1,94 +1,30 @@
-# TFFRCNN
+# DeepSim
 
-This is an experimental **T**ensor **F**low implementation of **F**aster **RCNN** (**TFFRCNN**), mainly based on the work of [smallcorgi](https://github.com/smallcorgi/Faster-RCNN_TF) and [rbgirshick](https://github.com/rbgirshick/py-faster-rcnn). I have re-organized the libraries under `lib` path, making each of python modules independent to each other, so you can understand, re-write the code easily.
+This is a tensorflow implementation of the paper [Generating Images with Perceptual Similarity Metrics based on Deep Networks](https://arxiv.org/abs/1602.02644) by Alexey Dosovitskiy, Thomas Brox.
 
-For details about R-CNN please refer to the paper [Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks](http://arxiv.org/pdf/1506.01497v3.pdf) by Shaoqing Ren, Kaiming He, Ross Girshick, Jian Sun.
+It is based on [TFFRCNN](https://github.com/CharlesShang/TFFRCNN). Actually, I just use their data load module in `./deepSimGAN/util.py` for simplicity. You can remove all codes outside the `./deepSimGAN` directory if you rewrite the DataFetcher class in the util script.
 
-### What's New
+To train your own deepsim model, you need to:
+1. Prepare dataset and pretrained-model for encoder training.
+2. Train your encoder and save the fine-tuned checkpoint.
+3. Prepare dataset for generator and discriminator training.
+4. Load fine-tuned encoder and train the generator and discriminator.
 
-- [x] Resnet networks support
-- [x] KITTI object detection dataset support
-- [x] **P**osition **S**ensitive **ROI Pooling** (psroi_pooling), not testing yet
-- [x] Hard Example Mining
-- [x] Data Augment
-- [x] PVANet
-- [x] Tensorflow 1.0
-- [ ] R-FCN
-- [ ] Multi-layer Architecture (HyperNet)
-- [ ] more hacks...
+### Prepare dataset and pretrained model for encoder
 
-### Acknowledgments: 
+1. Download the training, validation, data and VOCdevkit to the target directory named `VOCdevkit`, such as `/data/VOCdevkit`. We use `$VOCdevkit` to refer to it and use `$DeepSim` to refer to this repo's root directory.
 
-1. [py-faster-rcnn](https://github.com/rbgirshick/py-faster-rcnn)
-
-2. [Faster-RCNN_TF](https://github.com/smallcorgi/Faster-RCNN_TF)
-
-3. [ROI pooling](https://github.com/zplizzi/tensorflow-fast-rcnn)
-
-### Requirements: software
-
-1. Requirements for Tensorflow (see: [Tensorflow](https://www.tensorflow.org/))
-
-2. Python packages you might not have: `cython`, `python-opencv`, `easydict` (recommend to install: [Anaconda](https://www.continuum.io/downloads))
-
-### Requirements: hardware
-
-1. For training the end-to-end version of Faster R-CNN with VGG16, 3G of GPU memory is sufficient (using CUDNN)
-
-### Installation (sufficient for the demo)
-
-1. Clone the Faster R-CNN repository
-  ```Shell
-  git clone https://github.com/CharlesShang/TFFRCNN.git
-  ```
-
-2. Build the Cython modules
     ```Shell
-    cd TFFRCNN/lib
-    make # compile cython and roi_pooling_op, you may need to modify make.sh for your platform
+    cd $VOCdevkit
+    wget http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar
+    wget http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCdevkit_18-May-2011.tar
     ```
 
-### Demo
-
-*After successfully completing [basic installation](#installation-sufficient-for-the-demo)*, you'll be ready to run the demo.
-
-To run the demo
-```Shell
-cd $TFFRCNN
-python ./faster_rcnn/demo.py --model model_path
-```
-The demo performs detection using a VGG16 network trained for detection on PASCAL VOC 2007.
-
-### Download list
-
-1. [VGG16 trained on ImageNet](https://drive.google.com/open?id=0ByuDEGFYmWsbNVF5eExySUtMZmM)
-
-2. [VGG16 - TFFRCNN (0.689 mAP on VOC07)](https://drive.google.com/file/d/0B_xFdh9onPagX0JWRlR0cTZ5OGc/view?usp=sharing).
-
-3. [VGG16 - TFFRCNN (0.748 mAP on VOC07)](https://drive.google.com/file/d/0B_xFdh9onPagVmt5VHlCU25vUEE/view?usp=sharing)
-
-4. [Resnet50 trained on ImageNet](https://drive.google.com/file/d/0B_xFdh9onPagSWU1ZTAxUTZkZTQ/view?usp=sharing)
-
-5. [Resnet50 - TFFRCNN (0.712 mAP on VOC07)](https://drive.google.com/file/d/0B_xFdh9onPagbXk1b0FIeDRJaU0/view?usp=sharing)
-
-6. [PVANet trained on ImageNet, converted from caffemodel](https://drive.google.com/open?id=0B_xFdh9onPagQnJBdWl3VGQxam8)
-
-### Training on Pascal VOC 2007
-
-1. Download the training, validation, test data and VOCdevkit
+2. Extract all of these tars
 
     ```Shell
-    wget http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtrainval_06-Nov-2007.tar
-    wget http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtest_06-Nov-2007.tar
-    wget http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCdevkit_08-Jun-2007.tar
-    ```
-
-2. Extract all of these tars into one directory named `VOCdevkit`
-
-    ```Shell
-    tar xvf VOCtrainval_06-Nov-2007.tar
-    tar xvf VOCtest_06-Nov-2007.tar
-    tar xvf VOCdevkit_08-Jun-2007.tar
+    tar xvf VOCtrainval_11-May-2012.tar
+    tar xvf VOCdevkit_18-May-2011.tar
     ```
 
 3. It should have this basic structure
@@ -96,91 +32,49 @@ The demo performs detection using a VGG16 network trained for detection on PASCA
     ```Shell
     $VOCdevkit/                           # development kit
     $VOCdevkit/VOCcode/                   # VOC utility code
-    $VOCdevkit/VOC2007                    # image sets, annotations, etc.
+    $VOCdevkit/VOC2012                    # image sets, annotations, etc.
     # ... and several other directories ...
     ```
-
 4. Create symlinks for the PASCAL VOC dataset
 
     ```Shell
-    cd $TFFRCNN/data
-    ln -s $VOCdevkit VOCdevkit2007
+    cd $DeepSim/data
+    ln -s $VOCdevkit VOCdevkit2012
     ```
 
-5. Download pre-trained model [VGG16](https://drive.google.com/open?id=0ByuDEGFYmWsbNVF5eExySUtMZmM) and put it in the path `./data/pretrain_model/VGG_imagenet.npy`
+5. Download pre-trained model [VGG16](https://drive.google.com/open?id=0ByuDEGFYmWsbNVF5eExySUtMZmM) and put it in the path `$DeepSim/data/pretrain_model/VGG_imagenet.npy`
 
-6. Run training scripts 
 
-    ```Shell
-    cd $TFFRCNN
-    python ./faster_rcnn/train_net.py --gpu 0 --weights ./data/pretrain_model/VGG_imagenet.npy --imdb voc_2007_trainval --iters 70000 --cfg  ./experiments/cfgs/faster_rcnn_end2end.yml --network VGGnet_train --set EXP_DIR exp_dir
-    ```
+### Train the encoder
 
-7. Run a profiling
+The codes of encoder net deninition and training are in `deepSimGAN/EncoderNet.py`. You can use following command to start your training:
 
-    ```Shell
-    cd $TFFRCNN
-    # install a visualization tool
-    sudo apt-get install graphviz  
-    ./experiments/profiling/run_profiling.sh 
-    # generate an image ./experiments/profiling/profile.png
-    ```
+```Shell
+cd $DeepSim
+python deepSimGAN/EncoderNet.py --weight_path data/pretrain_model/VGG_imagenet.npy --logdir output/encoder
+```
 
-### Training on KITTI detection dataset
+All of checkpoints and summaries are stored in the given logdir. You can use tensorboard to monitor the training process
 
-1. Download the KITTI detection dataset
+```Shell
+tensorboard --logdir output/encoder --host 0.0.0.0 --port 6006
+```
 
-    ```
-    http://www.cvlibs.net/datasets/kitti/eval_object.php
-    ```
+### Prepare dataset for generator and discriminator training
 
-2. Extract all of these tar into `./TFFRCNN/data/` and the directory structure looks like this:
-    
-    ```
-    KITTI
-        |-- training
-                |-- image_2
-                    |-- [000000-007480].png
-                |-- label_2
-                    |-- [000000-007480].txt
-        |-- testing
-                |-- image_2
-                    |-- [000000-007517].png
-                |-- label_2
-                    |-- [000000-007517].txt
-    ```
+You can just reuse the Pascal VOC 2012.
 
-3. Convert KITTI into Pascal VOC format
-    
-    ```Shell
-    cd $TFFRCNN
-    ./experiments/scripts/kitti2pascalvoc.py \
-    --kitti $TFFRCNN/data/KITTI --out $TFFRCNN/data/KITTIVOC
-    ```
+If you want to use other datasets, remember to **rewrite the class DataFetcher in `./deepSimGAN/util.py`**
 
-4. The output directory looks like this:
 
-    ```
-    KITTIVOC
-        |-- Annotations
-                |-- [000000-007480].xml
-        |-- ImageSets
-                |-- Main
-                    |-- [train|val|trainval].txt
-        |-- JPEGImages
-                |-- [000000-007480].jpg
-    ```
+### Train your deepSimNet
 
-5. Training on `KITTIVOC` is just like on Pascal VOC 2007
+The code of deepSimNet definition is in `deepSimGAN/deepSimNet.py` and the code of training is in `deepSimGAN/main.py`. You can use following command to start your training:
 
-    ```Shell
-    python ./faster_rcnn/train_net.py \
-    --gpu 0 \
-    --weights ./data/pretrain_model/VGG_imagenet.npy \
-    --imdb kittivoc_train \
-    --iters 160000 \
-    --cfg ./experiments/cfgs/faster_rcnn_kitti.yml \
-    --network VGGnet_train
-    ```
+```Shell
+python deepSimGAN/main.py --encoder output/encoder --logdir output/deepsim
+```
+
+There are many other arguments which can be specified to influence your training. Please refer to the argument parser in `deepSimGAN/main.py`.
 
 

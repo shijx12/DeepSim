@@ -10,7 +10,6 @@
 __sets = {}
 
 from .VGGnet_test import VGGnet_test
-from .VGGnet_testold import VGGnet_testold
 from .VGGnet_train import VGGnet_train
 from .Resnet50_test import Resnet50_test
 from .Resnet50_train import Resnet50_train

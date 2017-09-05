@@ -74,7 +74,7 @@ class Network(object):
             if isinstance(layer, basestring):
                 try:
                     layer = self.layers[layer]
-                    # print layer
+                    print layer
                 except KeyError:
                     print self.layers.keys()
                     raise KeyError('Unknown layer name fed: %s'%layer)
@@ -129,63 +129,42 @@ class Network(object):
             """
 
     @layer
-    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,activation='relu',bn=False, init='origin', padding=DEFAULT_PADDING, trainable=True): # TODO: Note init of conv and upconv has been changed to msra, so maybe train FRCNN from scratch may fail !
+    def conv(self, input, k_h, k_w, c_o, s_h, s_w, name, biased=True,relu=True, padding=DEFAULT_PADDING, trainable=True):
         """ contribution by miraclebiu, and biased option"""
         self.validate_padding(padding)
         c_i = input.get_shape()[-1]
         convolve = lambda i, k: tf.nn.conv2d(i, k, [1, s_h, s_w, 1], padding=padding)
         with tf.variable_scope(name) as scope:
-            if init == 'origin':
-                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
-            elif init == 'msra':
-                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=2.0, mode='FAN_IN', uniform=False)
-            else:
-                raise Exception('Unknown conv init method')
+
+            # init_weights = tf.truncated_normal_initializer(0.0, stddev=0.001)
+            init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
+            init_biases = tf.constant_initializer(0.0)
             kernel = self.make_var('weights', [k_h, k_w, c_i, c_o], init_weights, trainable, \
                                    regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
-            h = convolve(input, kernel)
             if biased:
-                init_biases = tf.constant_initializer(0.0)
                 biases = self.make_var('biases', [c_o], init_biases, trainable)
-                h = tf.nn.bias_add(h, biases)
-            if bn:
-                h = self.batch_norm(h)
-            if activation != None:
-                if activation == 'relu':
-                    h = tf.nn.relu(h)
-                elif activation == 'leaky_relu':
-                    h = self.leaky_relu(h)
-            return h
-
-    def batch_norm(self, input, scope='batchnorm'):
-        # http://stackoverflow.com/a/34634291/2267819
-        with tf.variable_scope(scope):
-            input = tf.identity(input)
-            if len(input.get_shape().as_list()) == 4:
-                channels = input.get_shape()[3]
-                offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
-                scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
-                mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
-            elif len(input.get_shape().as_list()) == 2:
-                channels = input.get_shape()[1]
-                offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
-                scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
-                mean, variance = tf.nn.moments(input, axes=[0], keep_dims=False)
-            variance_epsilon = 1e-5
-            normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
-            return normalized
-
-    def leaky_relu(self, input, alpha=0.3, name='leaky_relu'):
-        return tf.maximum(alpha*input, input, name)
+                conv = convolve(input, kernel)
+                if relu:
+                    bias = tf.nn.bias_add(conv, biases)
+                    return tf.nn.relu(bias)
+                return tf.nn.bias_add(conv, biases)
+            else:
+                conv = convolve(input, kernel)
+                if relu:
+                    return tf.nn.relu(conv)
+                return conv
 
     @layer
-    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, activation='relu', bn=False, init='origin', padding=DEFAULT_PADDING, trainable=True):
+    def upconv(self, input, shape, c_o, ksize=4, stride = 2, name = 'upconv', biased=False, relu=True, padding=DEFAULT_PADDING,
+             trainable=True):
         """ up-conv"""
         self.validate_padding(padding)
 
         c_in = input.get_shape()[3].value
         in_shape = tf.shape(input)
         if shape is None:
+            # h = ((in_shape[1] - 1) * stride) + 1
+            # w = ((in_shape[2] - 1) * stride) + 1
             h = ((in_shape[1] ) * stride)
             w = ((in_shape[2] ) * stride)
             new_shape = [in_shape[0], h, w, c_o]
@@ -196,31 +175,26 @@ class Network(object):
         filter_shape = [ksize, ksize, c_o, c_in]
 
         with tf.variable_scope(name) as scope:
-            if init == 'origin':
-                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
-            elif init == 'msra':
-                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=2.0, mode='FAN_IN', uniform=False) # MSRA
-            else:
-                raise Exception('Unknown upconv init method')
+            # init_weights = tf.truncated_normal_initializer(0.0, stddev=0.01)
+            init_weights = tf.contrib.layers.variance_scaling_initializer(factor=0.01, mode='FAN_AVG', uniform=False)
             filters = self.make_var('weights', filter_shape, init_weights, trainable, \
                                    regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
             deconv = tf.nn.conv2d_transpose(input, filters, output_shape,
                                             strides=[1, stride, stride, 1], padding=DEFAULT_PADDING, name=scope.name)
             # coz de-conv losses shape info, use reshape to re-gain shape
-            h = tf.reshape(deconv, new_shape)
+            deconv = tf.reshape(deconv, new_shape)
 
             if biased:
                 init_biases = tf.constant_initializer(0.0)
                 biases = self.make_var('biases', [c_o], init_biases, trainable)
-                h = tf.nn.bias_add(h, biases)
-            if bn:
-                h = self.batch_norm(h)
-            if activation != None:
-                if activation=='relu':
-                    h = tf.nn.relu(h)
-                elif activation=='leaky_relu':
-                    h = self.leaky_relu(h)
-            return h
+                if relu:
+                    bias = tf.nn.bias_add(deconv, biases)
+                    return tf.nn.relu(bias)
+                return tf.nn.bias_add(deconv, biases)
+            else:
+                if relu:
+                    return tf.nn.relu(deconv)
+                return deconv
 
     @layer
     def relu(self, input, name):
@@ -330,19 +304,6 @@ class Network(object):
 
             return rois, labels, bbox_targets, bbox_inside_weights, bbox_outside_weights
 
-    @layer
-    def h_reshape(self, input, shape, name):
-        input_shape = input.get_shape().as_list()
-        if len(input_shape) != 2:
-            raise Exception('Input\'s shape of h_reshape must be [batch, dim]')
-        if input_shape[1] != shape[0]*shape[1]*shape[2]:
-            raise Exception('Not consistent shape')
-        return tf.reshape(input, [-1, shape[0], shape[1], shape[2]], name=name)
-
-    @layer
-    def reshape_toh(self, input, name):
-        shape = input.get_shape().as_list()
-        return tf.reshape(input, [-1, shape[1] * shape[2] * shape[3]], name=name)
 
     @layer
     def reshape_layer(self, input, d, name):
@@ -400,7 +361,7 @@ class Network(object):
         return tf.concat(axis=axis, values=inputs, name=name)
 
     @layer
-    def fc(self, input, num_out, name, activation='relu', biased=True, bn=False, init='origin', trainable=True):
+    def fc(self, input, num_out, name, relu=True, trainable=True):
         with tf.variable_scope(name) as scope:
             # only use the first input
             if isinstance(input, tuple):
@@ -417,30 +378,18 @@ class Network(object):
 
             if name == 'bbox_pred':
                 init_weights = tf.truncated_normal_initializer(0.0, stddev=0.001)
-            elif init == 'origin':
-                init_weights = tf.truncated_normal_initializer(0.0, stddev=0.01)
-            elif init == 'msra':
-                init_weights = tf.contrib.layers.variance_scaling_initializer(factor=2.0, mode='FAN_IN', uniform=False) # MSRA
+                init_biases = tf.constant_initializer(0.0)
             else:
-                raise Exception('Unknown fc init method')
-            init_biases = tf.constant_initializer(0.0)
+                init_weights = tf.truncated_normal_initializer(0.0, stddev=0.01)
+                init_biases = tf.constant_initializer(0.0)
 
             weights = self.make_var('weights', [dim, num_out], init_weights, trainable, \
                                     regularizer=self.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY))
-            if biased:
-                biases = self.make_var('biases', [num_out], init_biases, trainable)
-            else:
-                biases = tf.zeros([num_out], name='constant_biases')
+            biases = self.make_var('biases', [num_out], init_biases, trainable)
 
-            h = tf.nn.xw_plus_b(feed_in, weights, biases, name=scope.name)
-            if bn:
-                h = self.batch_norm(h)
-            if activation != None:
-                if activation=='relu':
-                    h = tf.nn.relu(h)
-                elif activation=='leaky_relu':
-                    h = self.leaky_relu(h)
-            return h
+            op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
+            fc = op(feed_in, weights, biases, name=scope.name)
+            return fc
 
     @layer
     def softmax(self, input, name):

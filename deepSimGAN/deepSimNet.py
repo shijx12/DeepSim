@@ -6,7 +6,7 @@ import cfg
 
 class deepSimNet():
     def __init__(self, batch_size, recon_weight, feat_weight, dis_weight, gan_type, trainable=True):
-        self.original_image = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='original_image')
+        self.original_image = tf.placeholder(tf.float32, shape=[batch_size, None, None, 3], name='original_image')
         self.real_image = crop(self.original_image, cfg.RESIZED_SIZE, cfg.IMAGE_SIZE)  # crop to fixed size
         self.real_image = prep(self.real_image)    # range [-1, 1]
         debug = False
@@ -39,33 +39,30 @@ class deepSimNet():
         self.enc_variables = [var for var in tf.all_variables() if var not in self.gen_variables and var not in self.dis_variables]
 
         # losses
-        self.recon_loss = recon_weight * tf.reduce_mean(tf.square(self.real_image - self.fake_image))
-        # self.recon_loss = recon_weight * tf.reduce_mean(tf.abs(self.real_image - self.fake_image))    # use L1 TODO
-        self.feat_loss = feat_weight * tf.reduce_mean(tf.square(self.real_cmp_h - self.fake_cmp_h))
-        #self.feat_loss = feat_weight * tf.reduce_mean(tf.losses.cosine_distance(self.real_cmp_h, self.fake_cmp_h, dim=1)) # use cos
+        self.recon_loss = tf.reduce_mean(tf.square(self.real_image - self.fake_image))
+        self.feat_loss = tf.reduce_mean(tf.square(self.real_cmp_h - self.fake_cmp_h))
         if gan_type == 'wgan':
-            self.gen_dis_loss = dis_weight * tf.reduce_mean(self.fake_score_logit)
-            self.dis_loss = dis_weight * tf.reduce_mean(self.real_score_logit - self.fake_score_logit)
+            self.gen_dis_loss = tf.reduce_mean(self.fake_score_logit)
+            self.dis_loss = tf.reduce_mean(self.real_score_logit - self.fake_score_logit)
         elif gan_type == 'lsgan':
-            self.gen_dis_loss = dis_weight * tf.reduce_mean(tf.square(self.fake_score_logit - 1))
-            self.dis_loss = dis_weight * tf.reduce_mean(tf.square(self.real_score_logit - 1) + tf.square(self.fake_score_logit))
+            self.gen_dis_loss = tf.reduce_mean(tf.square(self.fake_score_logit - 1))
+            self.dis_loss = tf.reduce_mean(tf.square(self.real_score_logit - 1) + tf.square(self.fake_score_logit))
         elif gan_type == 'gan':
-            label_shape = [batch_size, 1]
-            g_fake_loss = tf.nn.softmax_cross_entropy_with_logits(
+            g_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                     logits=self.fake_score_logit,
-                    labels=tf.one_hot(indices=[1]*batch_size, depth=2)
+                    labels=tf.ones_like(self.fake_score_logit)
                     )
             self.gen_dis_loss = tf.reduce_mean(g_fake_loss) 
-            d_real_loss = tf.nn.softmax_cross_entropy_with_logits(
+            d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                     logits=self.real_score_logit,
-                    labels=tf.one_hot(indices=[1]*batch_size, depth=2)
+                    labels=tf.ones_like(self.real_score_logit)
                     )
-            d_fake_loss = tf.nn.softmax_cross_entropy_with_logits(
+            d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                     logits=self.fake_score_logit,
-                    labels=tf.one_hot(indices=[0]*batch_size, depth=2)
+                    labels=tf.ones_like(self.fake_score_logit)
                     )
             self.dis_loss = tf.reduce_mean(d_real_loss + d_fake_loss)
-        self.gen_loss = self.recon_loss + self.feat_loss + self.gen_dis_loss 
+        self.gen_loss = recon_weight * self.recon_loss + feat_weight * self.feat_loss + dis_weight * self.gen_dis_loss 
 
         if debug:
             print ' ----- DEBUG NETWORK KEY TENSOR ----'
@@ -78,8 +75,12 @@ class deepSimNet():
             print 'enc_variables', self.enc_variables
             print ' -----------------------------------'
 
-
-def Encoder(image): # Untrainable at all. Must be restored !!
+#######
+# Untrainable at all. Must be restored !! 
+# Here its structure is the same as EncoderNet.Encoder_net
+# So it must be restored from EncoderNet's checkpoint 
+######
+def Encoder(image): 
     image.set_shape([None, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE, 3])
     image = subtract_mean(invprep(image)) # change range from [-1,1] to [0, 256] and then subtract mean pixel
     h = conv(image, 3, 3, 64, 1, 1, name='conv1_1', trainable=False)
@@ -138,8 +139,9 @@ def Generator(inverted_h, trainable):
        
 def Discriminator(image, feature, trainable, noise_sigma):
     image.set_shape([None, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE, 3])
-    # image = image + tf.random_normal(shape=tf.shape(image), mean=0.0, stddev=noise_sigma) # TODO
-    # feature = feature + tf.random_normal(shape=tf.shape(feature), mean=0.0, stddev=2*noise_sigma) # TODO
+    # add random noise to the input of discriminator. To make the traning of D harder.
+    image = image + tf.random_normal(shape=tf.shape(image), mean=0.0, stddev=noise_sigma)
+    feature = feature + tf.random_normal(shape=tf.shape(feature), mean=0.0, stddev=2*noise_sigma)
     act = 'leaky_relu'
     bn = True
     pad = 'VALID'
@@ -162,7 +164,7 @@ def Discriminator(image, feature, trainable, noise_sigma):
         h = fc(h, 2, name='fc7', activation='', bn=False, trainable=trainable)
     else:               # test phase
         h = fc(h, 512, name='fc6', activation=act, bn=bn, trainable=trainable)
-        h = fc(h, 2, name='fc7', activation='', bn=False, trainable=trainable)
+        h = fc(h, 1, name='fc7', activation='', bn=False, trainable=trainable)
     return h         # range (-inf, inf)
 
 
