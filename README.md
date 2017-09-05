@@ -2,7 +2,19 @@
 
 This is a tensorflow implementation of the paper [Generating Images with Perceptual Similarity Metrics based on Deep Networks](https://arxiv.org/abs/1602.02644) by Alexey Dosovitskiy, Thomas Brox.
 
-It is based on [TFFRCNN](https://github.com/CharlesShang/TFFRCNN). Actually, I just use their data load module in `./deepSimGAN/util.py` for simplicity. You can remove all codes outside the `./deepSimGAN` directory if you rewrite the DataFetcher class in the util script.
+This repo is based on CharlesShang's work [TFFRCNN](https://github.com/CharlesShang/TFFRCNN). I really appreciate their great work.
+
+I mainly use the data load module of their work in `./deepSimGAN/util.py`. You can remove all codes outside the `./deepSimGAN` directory if you rewrite the DataFetcher class in the `./deepSimGAN/util.py` script.
+
+### requirement
+
+- python 2.7
+- tensorflow >= 1.1.0
+- python-opencv >= 3.2.0
+- numpy >= 1.11.3
+- tqdm
+
+## Training
 
 To train your own deepsim model, you need to:
 1. Prepare dataset and pretrained-model for encoder training.
