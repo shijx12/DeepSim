@@ -16,7 +16,8 @@ def parse_args():
     parser.add_argument('--encoder', type=str, required=True, help='where is the encoder trained model')
     parser.add_argument('--seed', type=int, default=123456789)
     parser.add_argument('--optimizer', default='Adam', choices=['Adam', 'RMS'])
-    parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
+    parser.add_argument('--lr', type=float, default=0.002, help='start learning rate')
+    parser.add_argument('--lrd', type=float, default=0.96, help='learning rate decay every 100k global step')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 of optimizer')
     parser.add_argument('--save_freq', type=int, default=50000, help='save frequency')
     parser.add_argument('--show_freq', type=int, default=50, help='show frequency')
@@ -50,18 +51,23 @@ def train():
     data = util.DataFetcher(args.imdb_name)
     sess = tf.Session()
     
-    # optimizer and train op
-    if args.optimizer == 'RMS':
-        optimizer = tf.train.RMSPropOptimizer(args.lr, decay=args.beta1)
-    elif args.optimizer == 'Adam':
-        optimizer = tf.train.AdamOptimizer(args.lr, beta1=args.beta1)
-    gen_grads = optimizer.compute_gradients(net.gen_loss, net.gen_variables)
-    gen_train_op = optimizer.apply_gradients(gen_grads)
-    dis_grads = optimizer.compute_gradients(net.dis_loss, net.dis_variables)
-    dis_train_op = optimizer.apply_gradients(dis_grads)
     # global step
     global_step = tf.contrib.framework.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step + 1)
+    # learning rate after decay
+    learning_rate = tf.train.exponential_decay(args.lr, global_step, 100000, args.lrd, staircase=True)
+    # optimizer and train op
+    if args.optimizer == 'RMS':
+        G_optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=args.beta1)
+        D_optimizer = tf.train.RMSPropOptimizer(learning_rate*0.1, decay=args.beta1)
+    elif args.optimizer == 'Adam':
+        G_optimizer = tf.train.AdamOptimizer(learning_rate, beta1=args.beta1)
+        D_optimizer = tf.train.AdamOptimizer(learning_rate*0.1, beta1=args.beta1)
+    gen_grads = G_optimizer.compute_gradients(net.gen_loss, net.gen_variables)
+    gen_train_op = G_optimizer.apply_gradients(gen_grads)
+    dis_grads = D_optimizer.compute_gradients(net.dis_loss, net.dis_variables)
+    dis_train_op = D_optimizer.apply_gradients(dis_grads)
+
     # clip op
     if args.gan == 'wgan':
         clip_disc_op = [var.assign(tf.clip_by_value(var, args.clip0, args.clip1)) for var in net.dis_variables]
